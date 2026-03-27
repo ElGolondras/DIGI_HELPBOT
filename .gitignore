@@ -2,3 +2,5 @@ API-Key.txt
 videos/
 output/
 conversaciones/
+.env
+preferencias.json

@@ -22,29 +22,74 @@ def recurso_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-API_KEY = ""  # ← Pon aquí tu clave de GroqCloud
+# ─────────────────────────────────────────────
+#  CARGA DE VARIABLES DE ENTORNO (.env)
+# ─────────────────────────────────────────────
+def _cargar_env():
+    env_path = os.path.join(os.path.abspath("."), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+
+_cargar_env()
+
+API_KEY = os.environ.get("GROQ_API_KEY", "")  # Define GROQ_API_KEY en tu .env
 
 # ─────────────────────────────────────────────
 #  CONFIGURACIÓN MySQL
 # ─────────────────────────────────────────────
 DB_CONFIG = {
-    "host":     "",  # ← Tu host va aqui
-    "port":     ,    # ← Tu puerto va aqui
-    "user":     "",  # ← Tu usuario MySQL
-    "password": "",  # ← Tu contraseña MySQL
-    "database": ""   # ← Nombre de tu base de datos
+    "host":     os.environ.get("DB_HOST", "localhost"),
+    "port":     int(os.environ.get("DB_PORT", 3306)),
+    "user":     os.environ.get("DB_USER", "root"),
+    "password": os.environ.get("DB_PASSWORD", ""),
+    "database": os.environ.get("DB_NAME", "digihelp"),
 }
 
 def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
-def crear_incidencia_db(usuario, problema, urgencia="media"):
+def login_usuario(username, contrasenia):
+    """Devuelve el dict del usuario si las credenciales son correctas, si no None."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT * FROM usuarios WHERE username = %s AND contrasenia = %s",
+            (username, contrasenia)
+        )
+        usuario = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return usuario  # dict con id, username, nombre_completo, departamento, email, contrasenia
+    except Exception as e:
+        print(f"[DB] Error en login: {e}")
+        return None
+
+def detectar_urgencia(problema):
+    """Detecta automáticamente la urgencia según el texto del problema."""
+    pl = problema.lower()
+    if any(p in pl for p in ["no enciende","pantalla azul","virus","hackeado","datos perdidos",
+                              "no arranca","caido","servidor","ransomware","brecha","seguridad"]):
+        return "alta"
+    elif any(p in pl for p in ["impresora","internet","red","correo","contrasena","contraseña",
+                                "vpn","lento","cuelga","no conecta","wifi","actualizar"]):
+        return "media"
+    return "baja"
+
+def crear_incidencia_db(nombre_completo, departamento, email, problema, urgencia="media"):
+    """Crea una incidencia con todos los datos del usuario."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO incidencias (usuario, problema, urgencia) VALUES (%s, %s, %s)",
-            (usuario, problema, urgencia)
+            """INSERT INTO incidencias (usuario, departamento, email, problema, urgencia)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (nombre_completo, departamento, email, problema, urgencia)
         )
         conn.commit()
         cursor.close()
@@ -106,6 +151,65 @@ C = {
     "header_bg":     "#FFFFFF",
     "video_bg":      "#0F172A",
 }
+
+# ─────────────────────────────────────────────
+#  TEMAS Y PREFERENCIAS DE PERSONALIZACIÓN
+# ─────────────────────────────────────────────
+TEMAS = {
+    "claro": {
+        "bg_app": "#F0F2F5", "sidebar_bg": "#1B2A4A", "sidebar_hover": "#243557",
+        "sidebar_btn": "#2C3E6B", "bubble_ia": "#FFFFFF", "text_dark": "#1E293B",
+        "text_light": "#FFFFFF", "text_muted": "#94A3B8", "input_bg": "#FFFFFF",
+        "border": "#CBD5E1", "card": "#FFFFFF", "header_bg": "#FFFFFF", "video_bg": "#0F172A",
+    },
+    "oscuro": {
+        "bg_app": "#0F172A", "sidebar_bg": "#0A0F1E", "sidebar_hover": "#1E293B",
+        "sidebar_btn": "#1E293B", "bubble_ia": "#1E293B", "text_dark": "#F1F5F9",
+        "text_light": "#FFFFFF", "text_muted": "#64748B", "input_bg": "#1E293B",
+        "border": "#334155", "card": "#1E293B", "header_bg": "#0F172A", "video_bg": "#000000",
+    },
+}
+
+ACENTOS = {
+    "Azul":    ("#2563EB", "#1D4ED8"),
+    "Violeta": ("#7C3AED", "#6D28D9"),
+    "Verde":   ("#16A34A", "#15803D"),
+    "Rojo":    ("#DC2626", "#B91C1C"),
+    "Naranja": ("#EA580C", "#C2410C"),
+    "Rosa":    ("#DB2777", "#BE185D"),
+}
+
+PREFS_PATH = os.path.join(os.path.abspath("."), "preferencias.json")
+
+def cargar_prefs():
+    try:
+        with open(PREFS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"tema": "claro", "acento": "Azul", "fuente": 13}
+
+def guardar_prefs(prefs):
+    try:
+        with open(PREFS_PATH, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def aplicar_tema(prefs):
+    """Actualiza el dict global C con el tema y acento seleccionados."""
+    tema = TEMAS.get(prefs.get("tema", "claro"), TEMAS["claro"])
+    acento_nombre = prefs.get("acento", "Azul")
+    acento, acento_dark = ACENTOS.get(acento_nombre, ACENTOS["Azul"])
+    C.update(tema)
+    C["accent"]      = acento
+    C["accent_dark"] = acento_dark
+    C["bubble_user"] = acento
+    modo_ctk = "dark" if prefs.get("tema") == "oscuro" else "light"
+    ctk.set_appearance_mode(modo_ctk)
+
+# Cargar y aplicar preferencias al inicio
+_prefs_globales = cargar_prefs()
+aplicar_tema(_prefs_globales)
 
 class BurbujaChat(ctk.CTkFrame):
     def __init__(self, parent, texto, es_ia, avatar_ia=None, timestamp="", imagen_ruta=None):
@@ -193,9 +297,121 @@ class BurbujaChat(ctk.CTkFrame):
         self.lbl.configure(text=texto)
 
 
-class DigiHelpApp(ctk.CTk):
+class LoginApp(ctk.CTk):
+    """Ventana de login independiente. Al autenticarse lanza DigiHelpApp y se cierra."""
     def __init__(self):
         super().__init__()
+        ctk.set_appearance_mode("light")
+        self.title("DigiHelp AI — Iniciar sesión")
+        self.geometry("420x500")
+        self.resizable(False, False)
+        self.configure(fg_color=C["bg_app"])
+
+        self.update_idletasks()
+        x = (self.winfo_screenwidth()  - 420) // 2
+        y = (self.winfo_screenheight() - 500) // 2
+        self.geometry(f"420x500+{x}+{y}")
+
+        self.protocol("WM_DELETE_WINDOW", self._cancelar)
+        self._construir_ui()
+
+    def _construir_ui(self):
+        header = ctk.CTkFrame(self, fg_color=C["sidebar_bg"], corner_radius=0, height=120)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        try:
+            img = Image.open(recurso_path("avatar.png")).convert("RGBA")
+            s = min(img.size)
+            img = img.crop(((img.width-s)//2, (img.height-s)//2, (img.width+s)//2, (img.height+s)//2))
+            img = img.resize((56, 56), Image.LANCZOS)
+            mask = Image.new("L", (56, 56), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, 56, 56), fill=255)
+            out = Image.new("RGBA", (56, 56), (0,0,0,0))
+            out.paste(img, (0, 0), mask)
+            ctk_logo = ctk.CTkImage(light_image=out, dark_image=out, size=(56, 56))
+            lbl_logo = ctk.CTkLabel(header, image=ctk_logo, text="")
+            lbl_logo.pack(pady=(20, 4))
+            lbl_logo._img_ref = ctk_logo
+        except Exception:
+            ctk.CTkLabel(header, text="D", font=("Georgia", 28, "bold"),
+                         text_color="white").pack(pady=(20, 4))
+
+        ctk.CTkLabel(header, text="DigiHelp AI", font=("Helvetica", 18, "bold"),
+                     text_color="white").pack()
+
+        form = ctk.CTkFrame(self, fg_color="transparent")
+        form.pack(fill="both", expand=True, padx=40, pady=30)
+
+        ctk.CTkLabel(form, text="Usuario", font=("Helvetica", 13, "bold"),
+                     text_color=C["text_dark"], anchor="w").pack(fill="x")
+        self.entry_user = ctk.CTkEntry(form, placeholder_text="Introduce tu usuario",
+                                       height=44, corner_radius=10,
+                                       font=("Helvetica", 13))
+        self.entry_user.pack(fill="x", pady=(4, 16))
+        self.entry_user.bind("<Return>", lambda e: self.entry_pass.focus())
+
+        ctk.CTkLabel(form, text="Contraseña", font=("Helvetica", 13, "bold"),
+                     text_color=C["text_dark"], anchor="w").pack(fill="x")
+        self.entry_pass = ctk.CTkEntry(form, placeholder_text="Introduce tu contraseña",
+                                       height=44, corner_radius=10,
+                                       font=("Helvetica", 13), show="•")
+        self.entry_pass.pack(fill="x", pady=(4, 8))
+        self.entry_pass.bind("<Return>", lambda e: self._intentar_login())
+
+        self.lbl_error = ctk.CTkLabel(form, text="", font=("Helvetica", 12),
+                                      text_color="#EF4444")
+        self.lbl_error.pack(fill="x", pady=(0, 12))
+
+        self.btn_login = ctk.CTkButton(form, text="Entrar", height=46, corner_radius=10,
+                                       fg_color=C["accent"], hover_color=C["accent_dark"],
+                                       font=("Helvetica", 14, "bold"), text_color="white",
+                                       command=self._intentar_login)
+        self.btn_login.pack(fill="x")
+
+        ctk.CTkLabel(form, text="Soporte IT · v2.0", font=("Helvetica", 11),
+                     text_color=C["text_muted"]).pack(pady=(20, 0))
+
+        self.entry_user.focus()
+
+    def _intentar_login(self):
+        username = self.entry_user.get().strip()
+        contrasenia = self.entry_pass.get().strip()
+        if not username or not contrasenia:
+            self.lbl_error.configure(text="Por favor, rellena todos los campos.")
+            return
+        self.btn_login.configure(state="disabled", text="Verificando...")
+        self.lbl_error.configure(text="")
+
+        def _verificar():
+            usuario = login_usuario(username, contrasenia)
+            if usuario:
+                self.after(0, lambda: self._login_ok(usuario))
+            else:
+                self.after(0, lambda: self._login_fail())
+
+        threading.Thread(target=_verificar, daemon=True).start()
+
+    def _login_ok(self, usuario):
+        self.destroy()
+        app = DigiHelpApp(usuario)
+        app.mainloop()
+
+    def _login_fail(self):
+        self.lbl_error.configure(text="Usuario o contraseña incorrectos.")
+        self.btn_login.configure(state="normal", text="Entrar")
+        self.entry_pass.delete(0, "end")
+        self.entry_pass.focus()
+
+    def _cancelar(self):
+        self.destroy()
+        import sys
+        sys.exit(0)
+
+class DigiHelpApp(ctk.CTk):
+    def __init__(self, usuario_data):
+        super().__init__()
+        self.usuario_data = usuario_data  # dict con datos del usuario logueado
         ctk.set_appearance_mode("light")
         self.title("DigiHelp AI — Soporte IT Corporativo")
         self.geometry("1200x800")
@@ -240,6 +456,7 @@ class DigiHelpApp(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_rowconfigure(2, weight=1)
+        self.sidebar.grid_columnconfigure(0, weight=1)
 
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=72)
         logo_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 0))
@@ -272,10 +489,16 @@ class DigiHelpApp(ctk.CTk):
                                                    scrollbar_button_color=C["sidebar_hover"])
         self.lista_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=4)
 
-        footer = ctk.CTkFrame(self.sidebar, fg_color=C["sidebar_hover"], corner_radius=10, height=52)
+        footer = ctk.CTkFrame(self.sidebar, fg_color="transparent", corner_radius=0)
         footer.grid(row=3, column=0, sticky="ew", padx=12, pady=12)
-        footer.grid_propagate(False)
-        ctk.CTkLabel(footer, text="Soporte IT · v2.0", font=("Helvetica", 11), text_color=C["text_muted"]).pack(expand=True)
+
+        ctk.CTkLabel(footer, text="Soporte IT · v2.0", font=("Helvetica", 11),
+                     text_color=C["text_muted"]).pack(pady=(0, 8))
+
+        ctk.CTkButton(footer, text="⏻  Cerrar sesión", font=("Helvetica", 12, "bold"),
+                      height=40, corner_radius=10,
+                      fg_color="#EF4444", hover_color="#DC2626",
+                      text_color="white", command=self.cerrar_sesion).pack(fill="x")
 
     def cargar_sidebar(self):
         for w in self.lista_frame.winfo_children():
@@ -350,8 +573,10 @@ class DigiHelpApp(ctk.CTk):
         self._construir_entrada()
 
     def _construir_header(self):
-        header = ctk.CTkFrame(self.main, height=64, corner_radius=0,
+        self._header = ctk.CTkFrame(self.main, height=64, corner_radius=0,
                               fg_color=C["header_bg"], border_width=1, border_color=C["border"])
+        self._header = self._header
+        header = self._header
         header.grid(row=0, column=0, columnspan=2, sticky="ew")
         header.grid_propagate(False)
         self.btn_toggle = ctk.CTkButton(header, text="☰", width=40, height=40,
@@ -360,7 +585,18 @@ class DigiHelpApp(ctk.CTk):
         self.btn_toggle.pack(side="left", padx=12)
         ctk.CTkLabel(header, text="Soporte de Incidencias IT", font=("Helvetica", 16, "bold"),
                      text_color=C["text_dark"]).pack(side="left", padx=4)
-        ctk.CTkLabel(header, text="● En línea", font=("Helvetica", 12), text_color="#22C55E").pack(side="right", padx=20)
+        # Info del usuario logueado (derecha del header)
+        nombre = self.usuario_data.get("nombre_completo", "")
+        depto  = self.usuario_data.get("departamento", "")
+        ctk.CTkLabel(header, text=f"👤  {nombre}  |  {depto}",
+                     font=("Helvetica", 12), text_color=C["text_muted"]).pack(side="right", padx=12)
+        ctk.CTkLabel(header, text="● En línea", font=("Helvetica", 12), text_color="#22C55E").pack(side="right", padx=(20,4))
+        # Botón de personalización
+        self.btn_prefs = ctk.CTkButton(header, text="⚙️", width=40, height=40,
+            fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"],
+            font=("Helvetica", 18), corner_radius=8, command=self._abrir_personalizacion)
+        self.btn_prefs.pack(side="right", padx=(0, 8))
+        self._ventana_prefs = None
 
     def _construir_area_chat(self):
         self.chat_frame = ctk.CTkScrollableFrame(self.main, fg_color=C["bg_app"], scrollbar_button_color=C["border"])
@@ -801,93 +1037,40 @@ class DigiHelpApp(ctk.CTk):
         self.after(0, lambda: self._mostrar_dialogo_incidencia())
 
     def _mostrar_dialogo_incidencia(self):
-        ventana = ctk.CTkToplevel(self)
-        ventana.title("Crear Incidencia")
-        ventana.geometry("420x320")
-        ventana.configure(fg_color=C["card"])
-        ventana.attributes("-topmost", True)
-        ventana.resizable(False, False)
+        """Crea el ticket automáticamente con los datos del usuario logueado."""
+        nombre    = self.usuario_data.get("nombre_completo", "Usuario desconocido")
+        depto     = self.usuario_data.get("departamento", "")
+        email     = self.usuario_data.get("email", "")
+        problema  = self._problema_inicial or "Sin descripción"
+        urgencia  = detectar_urgencia(problema)
 
-        ctk.CTkLabel(ventana, text="⚠️ No hemos podido resolver tu incidencia",
-                     font=("Helvetica", 14, "bold"), text_color=C["text_dark"],
-                     wraplength=360).pack(pady=(24, 4), padx=24)
-        ctk.CTkLabel(ventana, text="Vamos a crear un ticket para el equipo de IT.",
-                     font=("Helvetica", 12), text_color=C["text_muted"]).pack(pady=(0, 20))
+        exito = crear_incidencia_db(nombre, depto, email, problema, urgencia)
+        ts    = datetime.now().strftime("%H:%M")
+        sep   = "\n"
 
-        ctk.CTkLabel(ventana, text="Tu nombre:", font=("Helvetica", 12),
-                     text_color=C["text_dark"], anchor="w").pack(fill="x", padx=24)
-        entry_nombre = ctk.CTkEntry(ventana, placeholder_text="Ej: Juan García",
-                                    height=38, corner_radius=8)
-        entry_nombre.pack(fill="x", padx=24, pady=(4, 12))
-
-        ctk.CTkLabel(ventana, text="Nivel de urgencia:", font=("Helvetica", 12),
-                     text_color=C["text_dark"], anchor="w").pack(fill="x", padx=24)
-        urgencia_var = ctk.StringVar(value="media")
-        frame_urg = ctk.CTkFrame(ventana, fg_color="transparent")
-        frame_urg.pack(fill="x", padx=24, pady=(4, 20))
-        for u in ["baja", "media", "alta"]:
-            ctk.CTkRadioButton(frame_urg, text=u.capitalize(), variable=urgencia_var,
-                               value=u, font=("Helvetica", 12)).pack(side="left", padx=8)
-
-        def confirmar():
-            nombre = entry_nombre.get().strip() or "Usuario desconocido"
-            urgencia = urgencia_var.get()
-            problema = self._problema_inicial or "Sin descripción"
-            exito = crear_incidencia_db(nombre, problema, urgencia)
-            ventana.destroy()
-            ts = datetime.now().strftime("%H:%M")
-            if exito:
-                msg_ticket = f"✅ Ticket creado correctamente para {nombre}. El equipo de IT revisará tu incidencia lo antes posible."
-            else:
-                msg_ticket = "⚠️ No se pudo crear el ticket. Por favor contacta directamente con el equipo de IT."
-            self.after(0, lambda m=msg_ticket: BurbujaChat(
-                self.chat_frame, m, es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts))
-            self.after(0, self._scroll_abajo)
-            self._intentos = 0
-            self._problema_inicial = None
-            self._esperando_confirmacion = False
-
-        ctk.CTkButton(ventana, text="Crear ticket", height=40, corner_radius=10,
-                      fg_color=C["accent"], hover_color=C["accent_dark"],
-                      text_color="white", font=("Helvetica", 13, "bold"),
-                      command=confirmar).pack(padx=24, fill="x")
-
-    def _crear_ticket_automatico(self, ts):
-        problema = self._problema_inicial or "Sin descripcion"
-        pl = problema.lower()
-        if any(p in pl for p in ["no enciende","pantalla azul","virus","hackeado","datos perdidos","no arranca","caido","servidor"]):
-            urgencia = "alta"
-        elif any(p in pl for p in ["impresora","internet","red","correo","contrasena","vpn","lento","cuelga"]):
-            urgencia = "media"
-        else:
-            urgencia = "baja"
-        nombre = "Usuario desconocido"
-        for m in self.historial:
-            if m["role"] == "user" and isinstance(m["content"], str):
-                txt = m["content"].lower()
-                for prefix in ["soy ", "me llamo ", "mi nombre es "]:
-                    if prefix in txt:
-                        partes = txt.split(prefix)
-                        if len(partes) > 1:
-                            nombre = partes[1].split()[0].capitalize()
-                            break
-        exito = crear_incidencia_db(nombre, problema, urgencia)
-        ts_actual = datetime.now().strftime("%H:%M")
-        sep = chr(10)
         if exito:
-            msg_ticket = ("Avisame de que he agotado mis intentos para resolver esta incidencia." + sep +
-                          "He creado un ticket automaticamente:" + sep +
-                          "Problema: " + problema + sep +
-                          "Urgencia: " + urgencia.upper() + sep +
-                          "El equipo de IT lo revisara lo antes posible.")
+            urgencia_emoji = {"alta": "🔴", "media": "🟡", "baja": "🟢"}.get(urgencia, "⚪")
+            msg_ticket = (
+                f"✅ He creado un ticket automáticamente con tus datos:{sep}"
+                f"👤 Usuario: {nombre}  |  🏢 Departamento: {depto}{sep}"
+                f"📧 Email: {email}{sep}"
+                f"🔧 Problema: {problema}{sep}"
+                f"{urgencia_emoji} Urgencia detectada: {urgencia.upper()}{sep}"
+                f"El equipo de IT revisará tu incidencia lo antes posible."
+            )
         else:
-            msg_ticket = "He agotado mis intentos y no pude crear el ticket. Contacta con IT directamente."
+            msg_ticket = "⚠️ No se pudo crear el ticket. Por favor contacta directamente con el equipo de IT."
+
         self.after(0, lambda m=msg_ticket: BurbujaChat(
-            self.chat_frame, m, es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts_actual))
+            self.chat_frame, m, es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts))
         self.after(0, self._scroll_abajo)
         self._intentos = 0
         self._problema_inicial = None
         self._esperando_confirmacion = False
+
+    def _crear_ticket_automatico(self, ts):
+        """Ya no se usa directamente — redirige a _mostrar_dialogo_incidencia."""
+        self._mostrar_dialogo_incidencia()
 
     def _guardar_chat(self):
         if not self._chat_archivo:
@@ -1140,6 +1323,132 @@ class DigiHelpApp(ctk.CTk):
         ctk.CTkLabel(self.welcome, text="Describe tu incidencia IT y te ayudaré a resolverla paso a paso.",
                      font=("Helvetica", 13), text_color=C["text_muted"]).pack(pady=(0, 24))
 
+    def _abrir_personalizacion(self):
+        if self._ventana_prefs and self._ventana_prefs.winfo_exists():
+            self._ventana_prefs.focus()
+            return
+
+        prefs = cargar_prefs()
+        win = ctk.CTkToplevel(self)
+        self._ventana_prefs = win
+        win.title("Personalización")
+        win.geometry("400x460")
+        win.resizable(False, False)
+        win.configure(fg_color=C["bg_app"])
+        win.attributes("-topmost", True)
+        win.grab_set()
+
+        # Centrar respecto a la app principal
+        self.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - 400) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - 460) // 2
+        win.geometry(f"400x460+{x}+{y}")
+
+        # ── Header ventana ──
+        header = ctk.CTkFrame(win, fg_color=C["sidebar_bg"], corner_radius=0, height=56)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        ctk.CTkLabel(header, text="⚙️  Personalización", font=("Helvetica", 15, "bold"),
+                     text_color="white").pack(side="left", padx=20, pady=16)
+
+        body = ctk.CTkFrame(win, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=24, pady=16)
+
+        # ── Tema ──
+        ctk.CTkLabel(body, text="Tema", font=("Helvetica", 13, "bold"),
+                     text_color=C["text_dark"], anchor="w").pack(fill="x", pady=(0, 6))
+        tema_var = ctk.StringVar(value=prefs.get("tema", "claro"))
+        temas_frame = ctk.CTkFrame(body, fg_color="transparent")
+        temas_frame.pack(fill="x", pady=(0, 16))
+        for valor, etiqueta in [("claro", "☀️  Claro"), ("oscuro", "🌙  Oscuro")]:
+            ctk.CTkRadioButton(temas_frame, text=etiqueta, variable=tema_var, value=valor,
+                font=("Helvetica", 13), text_color=C["text_dark"],
+                fg_color=C["accent"], hover_color=C["accent_dark"]).pack(side="left", padx=(0, 20))
+
+        # Separador
+        ctk.CTkFrame(body, fg_color=C["border"], height=1).pack(fill="x", pady=(0, 16))
+
+        # ── Color de acento ──
+        ctk.CTkLabel(body, text="Color de acento", font=("Helvetica", 13, "bold"),
+                     text_color=C["text_dark"], anchor="w").pack(fill="x", pady=(0, 10))
+        acento_var = ctk.StringVar(value=prefs.get("acento", "Azul"))
+        acentos_frame = ctk.CTkFrame(body, fg_color="transparent")
+        acentos_frame.pack(fill="x", pady=(0, 16))
+
+        btns_acento = {}
+        def _sel_acento(nombre):
+            acento_var.set(nombre)
+            for n, b in btns_acento.items():
+                color, _ = ACENTOS[n]
+                b.configure(border_width=3 if n == nombre else 0,
+                            border_color="white" if n == nombre else color)
+
+        col = 0
+        for nombre, (color, _) in ACENTOS.items():
+            btn = ctk.CTkButton(acentos_frame, text=nombre, width=56, height=32,
+                corner_radius=8, fg_color=color, hover_color=_,
+                text_color="white", font=("Helvetica", 11, "bold"),
+                command=lambda n=nombre: _sel_acento(n))
+            btn.grid(row=0, column=col, padx=4)
+            btns_acento[nombre] = btn
+            col += 1
+        _sel_acento(acento_var.get())
+
+        # Separador
+        ctk.CTkFrame(body, fg_color=C["border"], height=1).pack(fill="x", pady=(0, 16))
+
+        # ── Tamaño de fuente ──
+        ctk.CTkLabel(body, text="Tamaño de fuente", font=("Helvetica", 13, "bold"),
+                     text_color=C["text_dark"], anchor="w").pack(fill="x", pady=(0, 6))
+        fuente_var = ctk.IntVar(value=prefs.get("fuente", 13))
+        fuente_row = ctk.CTkFrame(body, fg_color="transparent")
+        fuente_row.pack(fill="x", pady=(0, 20))
+        lbl_fuente = ctk.CTkLabel(fuente_row, text=f"{fuente_var.get()} px",
+                                   font=("Helvetica", 12), text_color=C["text_muted"], width=50)
+        lbl_fuente.pack(side="right")
+        def _on_fuente(val):
+            lbl_fuente.configure(text=f"{int(float(val))} px")
+        ctk.CTkSlider(fuente_row, from_=11, to=17, number_of_steps=6,
+                      variable=fuente_var, fg_color=C["border"],
+                      button_color=C["accent"], button_hover_color=C["accent_dark"],
+                      progress_color=C["accent"], command=_on_fuente).pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        # ── Botones ──
+        btns_row = ctk.CTkFrame(body, fg_color="transparent")
+        btns_row.pack(fill="x", pady=(0, 4))
+
+        def _aplicar():
+            nuevas = {"tema": tema_var.get(), "acento": acento_var.get(), "fuente": int(fuente_var.get())}
+            guardar_prefs(nuevas)
+            aplicar_tema(nuevas)
+            win.destroy()
+            self._ventana_prefs = None
+            # Reconstruir la UI para aplicar cambios
+            for widget in self.winfo_children():
+                widget.destroy()
+            self.configure(fg_color=C["bg_app"])
+            self.sidebar_visible = True
+            self._panel_adjuntar = None
+            self._ventana_prefs = None
+            self._construir_sidebar()
+            self._construir_main()
+            self.cargar_sidebar()
+
+        ctk.CTkButton(btns_row, text="Aplicar", height=40, corner_radius=10,
+                      fg_color=C["accent"], hover_color=C["accent_dark"],
+                      font=("Helvetica", 13, "bold"), text_color="white",
+                      command=_aplicar).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(btns_row, text="Cancelar", height=40, corner_radius=10,
+                      fg_color=C["border"], hover_color=C["text_muted"],
+                      font=("Helvetica", 13), text_color=C["text_dark"],
+                      command=win.destroy).pack(side="left", fill="x", expand=True)
+
+    def cerrar_sesion(self):
+        self.cerrar_video()
+        self.destroy()
+        login = LoginApp()
+        login.mainloop()
+
     def toggle_sidebar(self):
         if self.sidebar_visible:
             self.sidebar.grid_forget()
@@ -1149,5 +1458,5 @@ class DigiHelpApp(ctk.CTk):
             self.sidebar_visible = True
 
 if __name__ == "__main__":
-    app = DigiHelpApp()
-    app.mainloop()
+    login = LoginApp()
+    login.mainloop()
