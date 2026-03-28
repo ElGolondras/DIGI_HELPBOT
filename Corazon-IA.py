@@ -1,11 +1,11 @@
 import customtkinter as ctk
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw
 from groq import Groq
 import threading
 import time
 import os
 import json
-import cv2
+import vlc
 from datetime import datetime
 import base64
 from tkinter import filedialog
@@ -101,7 +101,6 @@ def crear_incidencia_db(nombre_completo, departamento, email, problema, urgencia
 client = Groq(api_key=API_KEY)
 MODELO_TEXTO  = "llama-3.3-70b-versatile"
 MODELO_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
-MODELO = MODELO_TEXTO
 
 SYSTEM_PROMPT = """Eres DigiHelp, asistente de soporte técnico IT. Tu única función es resolver problemas técnicos.
 
@@ -151,10 +150,6 @@ C = {
     "header_bg":     "#FFFFFF",
     "video_bg":      "#0F172A",
 }
-
-# ─────────────────────────────────────────────
-#  TEMAS Y PREFERENCIAS DE PERSONALIZACIÓN
-# ─────────────────────────────────────────────
 TEMAS = {
     "claro": {
         "bg_app": "#F0F2F5", "sidebar_bg": "#1B2A4A", "sidebar_hover": "#243557",
@@ -217,11 +212,30 @@ aplicar_tema(_prefs_globales)
 class BurbujaChat(ctk.CTkFrame):
     def __init__(self, parent, texto, es_ia, avatar_ia=None, timestamp="", imagen_ruta=None):
         super().__init__(parent, fg_color="transparent")
+        self.es_ia = es_ia
         self.pack(fill="x", padx=16, pady=6)
         if es_ia:
             self._burbuja_ia(texto, avatar_ia, timestamp)
         else:
             self._burbuja_usuario(texto, timestamp, imagen_ruta)
+
+    def recolorear(self):
+        """Actualiza los colores de esta burbuja con los valores actuales de C y FUENTE."""
+        try:
+            if self.es_ia:
+                self._frame_burbuja.configure(fg_color=C["bubble_ia"], border_color=C["border"])
+                self.lbl.configure(text_color=C["text_dark"], font=("Helvetica", FUENTE))
+                if hasattr(self, "_lbl_nombre"):
+                    self._lbl_nombre.configure(text_color=C["accent"])
+                if hasattr(self, "_lbl_ts"):
+                    self._lbl_ts.configure(text_color=C["text_muted"])
+            else:
+                self._frame_burbuja.configure(fg_color=C["bubble_user"])
+                self.lbl.configure(font=("Helvetica", FUENTE))
+                if hasattr(self, "_lbl_ts"):
+                    self._lbl_ts.configure(text_color=C["text_muted"])
+        except Exception:
+            pass
 
     def _burbuja_ia(self, texto, avatar, timestamp):
         fila = ctk.CTkFrame(self, fg_color="transparent")
@@ -251,11 +265,13 @@ class BurbujaChat(ctk.CTkFrame):
         contenido.pack(side="left", fill="x", expand=True)
         cabecera = ctk.CTkFrame(contenido, fg_color="transparent")
         cabecera.pack(fill="x", anchor="w")
-        ctk.CTkLabel(cabecera, text="DigiHelp AI", font=("Helvetica", 11, "bold"), text_color=C["accent"]).pack(side="left")
-        ctk.CTkLabel(cabecera, text=f"  {timestamp}", font=("Helvetica", 10), text_color=C["text_muted"]).pack(side="left")
-        burbuja = ctk.CTkFrame(contenido, fg_color=C["bubble_ia"], corner_radius=12, border_width=1, border_color=C["border"])
-        burbuja.pack(fill="x", anchor="w", pady=(4, 0))
-        self.lbl = ctk.CTkLabel(burbuja, text=texto, font=("Helvetica", FUENTE), text_color=C["text_dark"],
+        self._lbl_nombre = ctk.CTkLabel(cabecera, text="DigiHelp AI", font=("Helvetica", 11, "bold"), text_color=C["accent"])
+        self._lbl_nombre.pack(side="left")
+        self._lbl_ts = ctk.CTkLabel(cabecera, text=f"  {timestamp}", font=("Helvetica", 10), text_color=C["text_muted"])
+        self._lbl_ts.pack(side="left")
+        self._frame_burbuja = ctk.CTkFrame(contenido, fg_color=C["bubble_ia"], corner_radius=12, border_width=1, border_color=C["border"])
+        self._frame_burbuja.pack(fill="x", anchor="w", pady=(4, 0))
+        self.lbl = ctk.CTkLabel(self._frame_burbuja, text=texto, font=("Helvetica", FUENTE), text_color=C["text_dark"],
                                 wraplength=520, justify="left", padx=14, pady=12, anchor="w")
         self.lbl.pack(fill="x")
 
@@ -267,11 +283,12 @@ class BurbujaChat(ctk.CTkFrame):
 
         cabecera = ctk.CTkFrame(contenido, fg_color="transparent")
         cabecera.pack(fill="x", anchor="e")
-        ctk.CTkLabel(cabecera, text=f"{timestamp}  ", font=("Helvetica", 10), text_color=C["text_muted"]).pack(side="right")
+        self._lbl_ts = ctk.CTkLabel(cabecera, text=f"{timestamp}  ", font=("Helvetica", 10), text_color=C["text_muted"])
+        self._lbl_ts.pack(side="right")
         ctk.CTkLabel(cabecera, text="Tú", font=("Helvetica", 11, "bold"), text_color=C["text_muted"]).pack(side="right")
 
-        burbuja = ctk.CTkFrame(contenido, fg_color=C["bubble_user"], corner_radius=12)
-        burbuja.pack(anchor="e", pady=(4, 0))
+        self._frame_burbuja = ctk.CTkFrame(contenido, fg_color=C["bubble_user"], corner_radius=12)
+        self._frame_burbuja.pack(anchor="e", pady=(4, 0))
 
         # Miniatura de imagen si existe
         if imagen_ruta and os.path.exists(imagen_ruta):
@@ -279,7 +296,7 @@ class BurbujaChat(ctk.CTkFrame):
                 img = Image.open(imagen_ruta).convert("RGB")
                 img.thumbnail((220, 160), Image.LANCZOS)
                 ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
-                lbl_img = ctk.CTkLabel(burbuja, image=ctk_img, text="", cursor="hand2")
+                lbl_img = ctk.CTkLabel(self._frame_burbuja, image=ctk_img, text="", cursor="hand2")
                 lbl_img.image = ctk_img
                 lbl_img.pack(padx=10, pady=(10, 4))
             except Exception:
@@ -288,12 +305,12 @@ class BurbujaChat(ctk.CTkFrame):
         # Texto (solo si hay algo que mostrar)
         texto_limpio = texto.replace("  🖼️", "").strip()
         if texto_limpio:
-            self.lbl = ctk.CTkLabel(burbuja, text=texto_limpio, font=("Helvetica", FUENTE),
+            self.lbl = ctk.CTkLabel(self._frame_burbuja, text=texto_limpio, font=("Helvetica", FUENTE),
                                     text_color=C["text_light"], wraplength=400,
                                     justify="right", padx=14, pady=10)
             self.lbl.pack()
         else:
-            self.lbl = ctk.CTkLabel(burbuja, text="", font=("Helvetica", 1))
+            self.lbl = ctk.CTkLabel(self._frame_burbuja, text="", font=("Helvetica", 1))
             self.lbl.pack()
 
     def actualizar_texto(self, texto):
@@ -439,10 +456,11 @@ class DigiHelpApp(ctk.CTk):
         self._chat_titulo = None  # Se genera en el primer mensaje y se reutiliza
         self._chat_archivo = None  # Nombre del archivo JSON de este chat
         self.sidebar_visible = True
-        self.video_cap = None
+        self.video_cap = None   # ya no se usa, se mantiene por compatibilidad con cerrar_sesion
         self.video_activo = False
         self.welcome = None
-        self._video_delay = 0.033
+        self._vlc_instance = None
+        self._vlc_player   = None
 
         os.makedirs("conversaciones", exist_ok=True)
 
@@ -463,9 +481,9 @@ class DigiHelpApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=72)
         logo_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 0))
         logo_frame.grid_propagate(False)
-        icono = ctk.CTkFrame(logo_frame, width=38, height=38, corner_radius=10, fg_color=C["accent"])
-        icono.pack(side="left", padx=(0, 10))
-        icono.pack_propagate(False)
+        self._icono_frame = ctk.CTkFrame(logo_frame, width=38, height=38, corner_radius=19, fg_color=C["accent"])
+        self._icono_frame.pack(side="left", padx=(0, 10))
+        self._icono_frame.pack_propagate(False)
         try:
             img = Image.open(recurso_path("avatar.png")).convert("RGBA")
             s = min(img.size)
@@ -476,10 +494,10 @@ class DigiHelpApp(ctk.CTk):
             out = Image.new("RGBA", (38, 38), (0,0,0,0))
             out.paste(img, (0, 0), mask)
             ctk_logo = ctk.CTkImage(light_image=out, dark_image=out, size=(38, 38))
-            ctk.CTkLabel(icono, image=ctk_logo, text="").pack(expand=True)
-            icono._img_ref = ctk_logo
+            ctk.CTkLabel(self._icono_frame, image=ctk_logo, text="").pack(expand=True)
+            self._icono_frame._img_ref = ctk_logo
         except Exception:
-            ctk.CTkLabel(icono, text="D", font=("Georgia", 18, "bold"), text_color="white").pack(expand=True)
+            ctk.CTkLabel(self._icono_frame, text="D", font=("Georgia", 18, "bold"), text_color="white").pack(expand=True)
         ctk.CTkLabel(logo_frame, text="DigiHelp AI", font=("Helvetica", 17, "bold"), text_color="white").pack(side="left", anchor="w")
 
         self.btn_nuevo = ctk.CTkButton(self.sidebar, text="＋  Nuevo chat", font=("Helvetica", 13, "bold"),
@@ -900,7 +918,6 @@ class DigiHelpApp(ctk.CTk):
         self._scroll_abajo()
 
         es_primero = len([m for m in self.historial if m["role"] == "user"]) == 0
-        texto_para_video = msg or "imagen"
         # Pasar imagen como tupla (ruta, None, media_type) — base64 se genera en el hilo
         threading.Thread(
             target=self._responder_ia,
@@ -1033,10 +1050,6 @@ class DigiHelpApp(ctk.CTk):
         finally:
             self.after(0, lambda: self.btn_enviar.configure(state="normal", text="Enviar  ➤"))
 
-    def _crear_incidencia_flujo(self, msg, ts):
-        # Pedir nombre y urgencia al usuario mediante ventana
-        self.after(0, lambda: self._mostrar_dialogo_incidencia())
-
     def _mostrar_dialogo_incidencia(self):
         """Crea el ticket automáticamente con los datos del usuario logueado."""
         nombre    = self.usuario_data.get("nombre_completo", "Usuario desconocido")
@@ -1069,10 +1082,6 @@ class DigiHelpApp(ctk.CTk):
         self._problema_inicial = None
         self._esperando_confirmacion = False
 
-    def _crear_ticket_automatico(self, ts):
-        """Ya no se usa directamente — redirige a _mostrar_dialogo_incidencia."""
-        self._mostrar_dialogo_incidencia()
-
     def _guardar_chat(self):
         if not self._chat_archivo:
             self._chat_archivo = self.chat_id
@@ -1103,7 +1112,7 @@ class DigiHelpApp(ctk.CTk):
 
     def _generar_titulo(self, msg):
         try:
-            r = client.chat.completions.create(model=MODELO, max_tokens=20,
+            r = client.chat.completions.create(model=MODELO_TEXTO, max_tokens=20,
                 messages=[{"role": "user", "content": f"Resume en 4 palabras máximo (solo el título, sin comillas ni puntos): {msg}"}])
             titulo = r.choices[0].message.content.strip().strip('"').strip("'").strip(".")
             return titulo if titulo else "Incidencia IT"
@@ -1136,28 +1145,23 @@ class DigiHelpApp(ctk.CTk):
             return
         self.cerrar_video()
 
-        # Estado del reproductor
-        self.video_activo  = True
-        self.video_pausado = False
-        self.video_cap     = cv2.VideoCapture(ruta_video)
-        if not self.video_cap.isOpened():
-            print(f"[Video] No se pudo abrir: {ruta_video}")
-            return
+        # ── Instancia VLC ─────────────────────────────
+        self._vlc_instance = vlc.Instance("--no-xlib")
+        self._vlc_player   = self._vlc_instance.media_player_new()
+        media = self._vlc_instance.media_new(ruta_video)
+        self._vlc_player.set_media(media)
+        self.video_activo = True
 
-        self._total_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = self.video_cap.get(cv2.CAP_PROP_FPS)
-        self._video_delay  = 1.0 / fps if fps > 0 else 0.033
-
-        # ── Ventana ──────────────────────────────────
+        # ── Ventana ───────────────────────────────────
         self._ventana_video = ctk.CTkToplevel(self)
         self._ventana_video.title("DigiHelp — Tutorial")
-        self._ventana_video.geometry("740x560")
+        self._ventana_video.geometry("760x520")
         self._ventana_video.configure(fg_color=C["video_bg"])
         self._ventana_video.attributes("-topmost", True)
         self._ventana_video.protocol("WM_DELETE_WINDOW", self.cerrar_video)
         self._ventana_video.resizable(False, False)
 
-        # ── Header ───────────────────────────────────
+        # ── Header ────────────────────────────────────
         header_v = ctk.CTkFrame(self._ventana_video, fg_color="#1E293B", height=48)
         header_v.pack(fill="x")
         header_v.pack_propagate(False)
@@ -1167,117 +1171,145 @@ class DigiHelpApp(ctk.CTk):
                       fg_color="#EF4444", hover_color="#DC2626", text_color="white",
                       font=("Helvetica", 12), command=self.cerrar_video).pack(side="right", padx=12, pady=8)
 
-        # ── Área de video ─────────────────────────────
-        self.video_label = ctk.CTkLabel(self._ventana_video, text="Cargando...",
-                                        text_color=C["text_muted"], fg_color="#000000")
-        self.video_label.pack(expand=True, fill="both", padx=0, pady=0)
+        # ── Canvas donde VLC renderiza el vídeo ───────
+        import tkinter as tk
+        self._video_canvas = tk.Frame(self._ventana_video, bg="black")
+        self._video_canvas.pack(expand=True, fill="both")
 
-        # ── Barra de progreso ─────────────────────────
+        # ── Controles ─────────────────────────────────
+        controles = ctk.CTkFrame(self._ventana_video, fg_color="#1E293B", height=100)
+        controles.pack(fill="x")
+        controles.pack_propagate(False)
+
+        # Slider de progreso
         self._progress_var = ctk.DoubleVar(value=0)
         self._slider = ctk.CTkSlider(
-            self._ventana_video, from_=0, to=max(self._total_frames - 1, 1),
-            variable=self._progress_var, button_color=C["accent"],
-            button_hover_color=C["accent_dark"], progress_color=C["accent"],
-            fg_color="#374151", height=14,
-            command=self._saltar_a_frame
+            controles, from_=0, to=1000,
+            variable=self._progress_var,
+            button_color=C["accent"], button_hover_color=C["accent_dark"],
+            progress_color=C["accent"], fg_color="#374151", height=14,
+            command=self._vlc_saltar
         )
-        self._slider.pack(fill="x", padx=16, pady=(8, 4))
+        self._slider.pack(fill="x", padx=16, pady=(10, 2))
 
-        # ── Tiempo ────────────────────────────────────
-        self._lbl_tiempo = ctk.CTkLabel(self._ventana_video, text="0:00 / 0:00",
+        # Tiempo
+        self._lbl_tiempo = ctk.CTkLabel(controles, text="0:00 / 0:00",
                                         font=("Helvetica", 11), text_color=C["text_muted"])
         self._lbl_tiempo.pack()
 
-        # ── Controles ─────────────────────────────────
-        controles = ctk.CTkFrame(self._ventana_video, fg_color="#1E293B", height=60)
-        controles.pack(fill="x", pady=(4, 0))
-        controles.pack_propagate(False)
+        # Botones
+        btns = ctk.CTkFrame(controles, fg_color="transparent")
+        btns.pack(pady=(2, 6))
 
-        estilo_btn = dict(width=52, height=40, corner_radius=10,
+        estilo_btn = dict(width=52, height=36, corner_radius=10,
                           fg_color="#374151", hover_color="#4B5563",
                           text_color="white", font=("Helvetica", 16))
 
-        ctk.CTkButton(controles, text="⏮", **estilo_btn,
-                      command=lambda: self._saltar_segundos(-30)).pack(side="left", padx=(16, 4), pady=10)
-        ctk.CTkButton(controles, text="⏪", **estilo_btn,
-                      command=lambda: self._saltar_segundos(-10)).pack(side="left", padx=4, pady=10)
+        ctk.CTkButton(btns, text="⏮", **estilo_btn,
+                      command=lambda: self._vlc_saltar_segundos(-30)).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="⏪", **estilo_btn,
+                      command=lambda: self._vlc_saltar_segundos(-10)).pack(side="left", padx=4)
 
-        self._btn_play = ctk.CTkButton(controles, text="⏸", width=64, height=40,
+        self._btn_play = ctk.CTkButton(btns, text="⏸", width=60, height=36,
                       corner_radius=10, fg_color=C["accent"], hover_color=C["accent_dark"],
                       text_color="white", font=("Helvetica", 18),
-                      command=self._toggle_pausa)
-        self._btn_play.pack(side="left", padx=8, pady=10)
+                      command=self._vlc_toggle_pausa)
+        self._btn_play.pack(side="left", padx=8)
 
-        ctk.CTkButton(controles, text="⏩", **estilo_btn,
-                      command=lambda: self._saltar_segundos(10)).pack(side="left", padx=4, pady=10)
-        ctk.CTkButton(controles, text="⏭", **estilo_btn,
-                      command=lambda: self._saltar_segundos(30)).pack(side="left", padx=4, pady=10)
+        ctk.CTkButton(btns, text="⏩", **estilo_btn,
+                      command=lambda: self._vlc_saltar_segundos(10)).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="⏭", **estilo_btn,
+                      command=lambda: self._vlc_saltar_segundos(30)).pack(side="left", padx=4)
 
-        threading.Thread(target=self._stream_video, daemon=True).start()
+        # Volumen
+        vol_frame = ctk.CTkFrame(controles, fg_color="transparent")
+        vol_frame.place(relx=1.0, rely=0.1, anchor="ne", x=-16)
+        ctk.CTkLabel(vol_frame, text="🔊", font=("Helvetica", 13),
+                     text_color=C["text_muted"]).pack(side="left", padx=(0, 4))
+        self._vol_slider = ctk.CTkSlider(vol_frame, from_=0, to=100, width=90, height=14,
+                      button_color=C["accent"], button_hover_color=C["accent_dark"],
+                      progress_color=C["accent"], fg_color="#374151",
+                      command=lambda v: self._vlc_player.audio_set_volume(int(v)))
+        self._vol_slider.set(80)
+        self._vol_slider.pack(side="left")
 
-    def _toggle_pausa(self):
-        self.video_pausado = not self.video_pausado
-        self._btn_play.configure(text="▶" if self.video_pausado else "⏸")
+        # ── Asignar canvas a VLC tras renderizar ──────
+        def _embed_vlc():
+            self._ventana_video.update_idletasks()
+            hwnd = self._video_canvas.winfo_id()
+            import sys
+            if sys.platform == "win32":
+                self._vlc_player.set_hwnd(hwnd)
+            elif sys.platform == "darwin":
+                self._vlc_player.set_nsobject(hwnd)
+            else:
+                self._vlc_player.set_xwindow(hwnd)
+            self._vlc_player.audio_set_volume(80)
+            self._vlc_player.play()
+            self._vlc_actualizar_ui()
 
-    def _saltar_segundos(self, segundos):
-        if not self.video_cap:
+        self._ventana_video.after(200, _embed_vlc)
+
+    def _vlc_toggle_pausa(self):
+        if self._vlc_player:
+            self._vlc_player.pause()
+            pausado = self._vlc_player.get_state() == vlc.State.Paused
+            self._btn_play.configure(text="▶" if pausado else "⏸")
+
+    def _vlc_saltar_segundos(self, segundos):
+        if self._vlc_player:
+            t = self._vlc_player.get_time() + segundos * 1000
+            t = max(0, t)
+            self._vlc_player.set_time(int(t))
+
+    def _vlc_saltar(self, valor):
+        if self._vlc_player:
+            dur = self._vlc_player.get_length()
+            if dur > 0:
+                self._vlc_player.set_time(int(float(valor) / 1000 * dur))
+
+    def _vlc_actualizar_ui(self):
+        if not self.video_activo or not self._vlc_player:
             return
-        fps = 1.0 / self._video_delay
-        frame_actual = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
-        nuevo_frame  = max(0, min(frame_actual + int(segundos * fps), self._total_frames - 1))
-        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, nuevo_frame)
-
-    def _saltar_a_frame(self, valor):
-        if self.video_cap:
-            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, int(valor))
-
-    def _stream_video(self):
-        fps = 1.0 / self._video_delay
-        while self.video_activo and self.video_cap and self.video_cap.isOpened():
-            if self.video_pausado:
-                time.sleep(0.05)
-                continue
-
-            ret, frame = self.video_cap.read()
-            if not ret:
-                # Rebobinar al terminar
-                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                self.video_pausado = True
-                self.after(0, lambda: self._btn_play.configure(text="▶"))
-                continue
-
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame_rgb).resize((740, 416), Image.LANCZOS)
-            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(740, 416))
-
-            frame_actual = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
-
-            if self.video_label and self.video_label.winfo_exists():
-                self.after(0, lambda i=ctk_img: self.video_label.configure(image=i, text=""))
-                self.video_label._img_ref = ctk_img
-
-            # Actualizar slider y tiempo
-            def _update_ui(f=frame_actual):
-                self._progress_var.set(f)
-                seg_actual = int(f / fps)
-                seg_total  = int(self._total_frames / fps)
+        try:
+            if not self._ventana_video.winfo_exists():
+                return
+            t   = self._vlc_player.get_time()
+            dur = self._vlc_player.get_length()
+            if dur > 0:
+                self._progress_var.set(t / dur * 1000)
+                sa = t // 1000;  sd = dur // 1000
                 self._lbl_tiempo.configure(
-                    text=f"{seg_actual // 60}:{seg_actual % 60:02d} / {seg_total // 60}:{seg_total % 60:02d}"
-                )
-            self.after(0, _update_ui)
-
-            time.sleep(self._video_delay)
-
-        if self.video_cap:
-            self.video_cap.release()
+                    text=f"{sa // 60}:{sa % 60:02d} / {sd // 60}:{sd % 60:02d}")
+            # Detectar fin
+            if self._vlc_player.get_state() == vlc.State.Ended:
+                self._vlc_player.stop()
+                self._vlc_player.set_time(0)
+                self._btn_play.configure(text="▶")
+                return
+            self._ventana_video.after(500, self._vlc_actualizar_ui)
+        except Exception:
+            pass
 
     def cerrar_video(self):
         self.video_activo = False
-        if self.video_cap:
-            self.video_cap.release()
-            self.video_cap = None
+        if self._vlc_player:
+            try:
+                self._vlc_player.stop()
+                self._vlc_player.release()
+            except Exception:
+                pass
+            self._vlc_player = None
+        if self._vlc_instance:
+            try:
+                self._vlc_instance.release()
+            except Exception:
+                pass
+            self._vlc_instance = None
         if hasattr(self, "_ventana_video") and self._ventana_video.winfo_exists():
             self._ventana_video.destroy()
+        # Compatibilidad con cerrar_sesion
+        self.video_cap = None
 
     def _crear_avatar(self):
         try:
@@ -1428,6 +1460,7 @@ class DigiHelpApp(ctk.CTk):
             # Aplicar colores a widgets existentes sin destruir el chat
             self.configure(fg_color=C["bg_app"])
             self.sidebar.configure(fg_color=C["sidebar_bg"])
+            self._icono_frame.configure(fg_color=C["accent"])
             self.btn_nuevo.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
             self.lista_frame.configure(scrollbar_button_color=C["sidebar_hover"])
             self._header.configure(fg_color=C["header_bg"], border_color=C["border"])
@@ -1439,6 +1472,10 @@ class DigiHelpApp(ctk.CTk):
             self.btn_enviar.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
             self.btn_adjuntar.configure(hover_color=C["border"])
             self.entry.configure(border_color=C["border"], font=("Helvetica", FUENTE))
+            # Recolorear burbujas existentes en el chat actual
+            for widget in self.chat_frame.winfo_children():
+                if isinstance(widget, BurbujaChat):
+                    widget.recolorear()
             # Recargar sidebar para que los botones de chats cojan el nuevo color
             self.cargar_sidebar()
 
