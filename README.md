@@ -216,6 +216,8 @@ python -m auto_py_to_exe
 ```
 groq
 customtkinter
+mysql
+
 ```
 
 4. Pulsa **CONVERT .PY TO .EXE** 🚀
