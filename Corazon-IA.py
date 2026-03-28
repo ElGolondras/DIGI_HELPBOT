@@ -26,7 +26,7 @@ def recurso_path(relative_path):
 #  CARGA DE VARIABLES DE ENTORNO (.env)
 # ─────────────────────────────────────────────
 def _cargar_env():
-    env_path = os.path.join(os.path.abspath("."), ".env")
+    env_path = recurso_path(".env") 
     if os.path.exists(env_path):
         with open(env_path, encoding="utf-8") as f:
             for line in f:
