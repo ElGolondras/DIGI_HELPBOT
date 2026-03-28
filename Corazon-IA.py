@@ -197,6 +197,7 @@ def guardar_prefs(prefs):
 
 def aplicar_tema(prefs):
     """Actualiza el dict global C con el tema y acento seleccionados."""
+    global FUENTE
     tema = TEMAS.get(prefs.get("tema", "claro"), TEMAS["claro"])
     acento_nombre = prefs.get("acento", "Azul")
     acento, acento_dark = ACENTOS.get(acento_nombre, ACENTOS["Azul"])
@@ -204,9 +205,11 @@ def aplicar_tema(prefs):
     C["accent"]      = acento
     C["accent_dark"] = acento_dark
     C["bubble_user"] = acento
+    FUENTE = int(prefs.get("fuente", 13))
     modo_ctk = "dark" if prefs.get("tema") == "oscuro" else "light"
     ctk.set_appearance_mode(modo_ctk)
 
+FUENTE = 13
 # Cargar y aplicar preferencias al inicio
 _prefs_globales = cargar_prefs()
 aplicar_tema(_prefs_globales)
@@ -252,7 +255,7 @@ class BurbujaChat(ctk.CTkFrame):
         ctk.CTkLabel(cabecera, text=f"  {timestamp}", font=("Helvetica", 10), text_color=C["text_muted"]).pack(side="left")
         burbuja = ctk.CTkFrame(contenido, fg_color=C["bubble_ia"], corner_radius=12, border_width=1, border_color=C["border"])
         burbuja.pack(fill="x", anchor="w", pady=(4, 0))
-        self.lbl = ctk.CTkLabel(burbuja, text=texto, font=("Helvetica", 13), text_color=C["text_dark"],
+        self.lbl = ctk.CTkLabel(burbuja, text=texto, font=("Helvetica", FUENTE), text_color=C["text_dark"],
                                 wraplength=520, justify="left", padx=14, pady=12, anchor="w")
         self.lbl.pack(fill="x")
 
@@ -285,7 +288,7 @@ class BurbujaChat(ctk.CTkFrame):
         # Texto (solo si hay algo que mostrar)
         texto_limpio = texto.replace("  🖼️", "").strip()
         if texto_limpio:
-            self.lbl = ctk.CTkLabel(burbuja, text=texto_limpio, font=("Helvetica", 13),
+            self.lbl = ctk.CTkLabel(burbuja, text=texto_limpio, font=("Helvetica", FUENTE),
                                     text_color=C["text_light"], wraplength=400,
                                     justify="right", padx=14, pady=10)
             self.lbl.pack()
@@ -442,7 +445,6 @@ class DigiHelpApp(ctk.CTk):
         self._video_delay = 0.033
 
         os.makedirs("conversaciones", exist_ok=True)
-        os.makedirs("videos", exist_ok=True)
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -575,7 +577,6 @@ class DigiHelpApp(ctk.CTk):
     def _construir_header(self):
         self._header = ctk.CTkFrame(self.main, height=64, corner_radius=0,
                               fg_color=C["header_bg"], border_width=1, border_color=C["border"])
-        self._header = self._header
         header = self._header
         header.grid(row=0, column=0, columnspan=2, sticky="ew")
         header.grid_propagate(False)
@@ -655,7 +656,7 @@ class DigiHelpApp(ctk.CTk):
 
         self.entry = ctk.CTkEntry(inner, placeholder_text="Describe tu incidencia IT aquí...",
             height=46, corner_radius=23, fg_color=C["input_bg"], border_color=C["border"],
-            border_width=1, font=("Helvetica", 13), text_color=C["text_dark"])
+            border_width=1, font=("Helvetica", FUENTE), text_color=C["text_dark"])
         self.entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
         self.entry.bind("<Return>", lambda e: self.lanzar_hilo())
 
@@ -1374,6 +1375,8 @@ class DigiHelpApp(ctk.CTk):
         acento_var = ctk.StringVar(value=prefs.get("acento", "Azul"))
         acentos_frame = ctk.CTkFrame(body, fg_color="transparent")
         acentos_frame.pack(fill="x", pady=(0, 16))
+        for c in range(3):
+            acentos_frame.grid_columnconfigure(c, weight=1)
 
         btns_acento = {}
         def _sel_acento(nombre):
@@ -1383,15 +1386,14 @@ class DigiHelpApp(ctk.CTk):
                 b.configure(border_width=3 if n == nombre else 0,
                             border_color="white" if n == nombre else color)
 
-        col = 0
-        for nombre, (color, _) in ACENTOS.items():
-            btn = ctk.CTkButton(acentos_frame, text=nombre, width=56, height=32,
-                corner_radius=8, fg_color=color, hover_color=_,
-                text_color="white", font=("Helvetica", 11, "bold"),
+        for i, (nombre, (color, dark)) in enumerate(ACENTOS.items()):
+            fila, col = divmod(i, 3)
+            btn = ctk.CTkButton(acentos_frame, text=nombre, height=34,
+                corner_radius=8, fg_color=color, hover_color=dark,
+                text_color="white", font=("Helvetica", 12, "bold"),
                 command=lambda n=nombre: _sel_acento(n))
-            btn.grid(row=0, column=col, padx=4)
+            btn.grid(row=fila, column=col, padx=4, pady=3, sticky="ew")
             btns_acento[nombre] = btn
-            col += 1
         _sel_acento(acento_var.get())
 
         # Separador
@@ -1423,15 +1425,21 @@ class DigiHelpApp(ctk.CTk):
             aplicar_tema(nuevas)
             win.destroy()
             self._ventana_prefs = None
-            # Reconstruir la UI para aplicar cambios
-            for widget in self.winfo_children():
-                widget.destroy()
+            # Aplicar colores a widgets existentes sin destruir el chat
             self.configure(fg_color=C["bg_app"])
-            self.sidebar_visible = True
-            self._panel_adjuntar = None
-            self._ventana_prefs = None
-            self._construir_sidebar()
-            self._construir_main()
+            self.sidebar.configure(fg_color=C["sidebar_bg"])
+            self.btn_nuevo.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
+            self.lista_frame.configure(scrollbar_button_color=C["sidebar_hover"])
+            self._header.configure(fg_color=C["header_bg"], border_color=C["border"])
+            self.btn_toggle.configure(hover_color=C["bg_app"], text_color=C["text_dark"])
+            self.btn_prefs.configure(hover_color=C["bg_app"], text_color=C["text_dark"])
+            self.chat_frame.configure(fg_color=C["bg_app"])
+            self.main.configure(fg_color=C["bg_app"])
+            self._entrada_bg.configure(fg_color=C["header_bg"], border_color=C["border"])
+            self.btn_enviar.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
+            self.btn_adjuntar.configure(hover_color=C["border"])
+            self.entry.configure(border_color=C["border"], font=("Helvetica", FUENTE))
+            # Recargar sidebar para que los botones de chats cojan el nuevo color
             self.cargar_sidebar()
 
         ctk.CTkButton(btns_row, text="Aplicar", height=40, corner_radius=10,
