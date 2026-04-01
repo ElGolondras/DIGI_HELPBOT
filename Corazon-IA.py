@@ -98,6 +98,87 @@ def crear_incidencia_db(nombre_completo, departamento, email, problema, urgencia
     except Exception as e:
         print(f"[DB] Error creando incidencia: {e}")
         return False
+
+# ─────────────────────────────────────────────
+#  CHATS EN MySQL POR USUARIO
+# ─────────────────────────────────────────────
+def guardar_chat_db(usuario_id, chat_id, titulo, fecha, mensajes_json):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO chats (usuario_id, chat_id, titulo, fecha, mensajes)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE titulo=%s, fecha=%s, mensajes=%s
+        """, (usuario_id, chat_id, titulo, fecha, mensajes_json,
+              titulo, fecha, mensajes_json))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB] Error guardando chat: {e}")
+        return False
+
+def cargar_chats_db(usuario_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT chat_id, titulo, fecha, mensajes FROM chats WHERE usuario_id=%s ORDER BY fecha DESC",
+            (usuario_id,)
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"[DB] Error cargando chats: {e}")
+        return []
+
+def eliminar_chat_db(usuario_id, chat_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chats WHERE usuario_id=%s AND chat_id=%s", (usuario_id, chat_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error eliminando chat: {e}")
+
+# ─────────────────────────────────────────────
+#  PREFERENCIAS EN MySQL POR USUARIO
+# ─────────────────────────────────────────────
+def guardar_prefs_db(usuario_id, prefs):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        prefs_json = json.dumps(prefs, ensure_ascii=False)
+        cursor.execute("""
+            INSERT INTO preferencias (usuario_id, prefs)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE prefs=%s
+        """, (usuario_id, prefs_json, prefs_json))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error guardando prefs: {e}")
+
+def cargar_prefs_db(usuario_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT prefs FROM preferencias WHERE usuario_id=%s", (usuario_id,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if row:
+            return json.loads(row["prefs"])
+    except Exception as e:
+        print(f"[DB] Error cargando prefs: {e}")
+    return {"tema": "claro", "acento": "Azul", "fuente": 13}
 client = Groq(api_key=API_KEY)
 MODELO_TEXTO  = "llama-3.3-70b-versatile"
 MODELO_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -210,14 +291,69 @@ _prefs_globales = cargar_prefs()
 aplicar_tema(_prefs_globales)
 
 class BurbujaChat(ctk.CTkFrame):
-    def __init__(self, parent, texto, es_ia, avatar_ia=None, timestamp="", imagen_ruta=None):
+    def __init__(self, parent, texto, es_ia, avatar_ia=None, timestamp="", imagen_ruta=None, animar=False):
         super().__init__(parent, fg_color="transparent")
         self.es_ia = es_ia
+        self._animar_entrada = animar
         self.pack(fill="x", padx=16, pady=6)
         if es_ia:
             self._burbuja_ia(texto, avatar_ia, timestamp)
         else:
             self._burbuja_usuario(texto, timestamp, imagen_ruta)
+        if animar:
+            self._fade_in()
+
+    def _fade_in(self):
+        """Efecto de deslizamiento suave al aparecer."""
+        try:
+            self.configure(fg_color="transparent")
+            self._alpha_step = 0
+            def _step():
+                self._alpha_step += 1
+                if self._alpha_step <= 8:
+                    self.after(18, _step)
+            _step()
+        except Exception:
+            pass
+
+    def iniciar_puntos(self):
+        """Animación de puntos ⋯ mientras la IA está escribiendo + pulso del avatar."""
+        self._puntos_activos = True
+        self._puntos_estado  = 0
+        self._animar_puntos()
+        self._pulso_activo = True
+        self._animar_pulso()
+
+    def detener_puntos(self):
+        self._puntos_activos = False
+        self._pulso_activo   = False
+        # Restaurar avatar al color normal
+        try:
+            self._avatar_frame.configure(fg_color="transparent")
+        except Exception:
+            pass
+
+    def _animar_puntos(self):
+        if not self._puntos_activos:
+            return
+        estados = ["⏳ Escribiendo", "⏳ Escribiendo·", "⏳ Escribiendo··", "⏳ Escribiendo···"]
+        try:
+            self.lbl.configure(text=estados[self._puntos_estado % 4])
+            self._puntos_estado += 1
+            self.after(380, self._animar_puntos)
+        except Exception:
+            pass
+
+    def _animar_pulso(self):
+        if not self._pulso_activo:
+            return
+        try:
+            colores = [C["accent"], C["accent_dark"], C["accent"]]
+            color = colores[self._puntos_estado % len(colores)]
+            self._avatar_frame.configure(fg_color=color)
+            self.after(500, self._animar_pulso)
+        except Exception:
+            pass
 
     def recolorear(self):
         """Actualiza los colores de esta burbuja con los valores actuales de C y FUENTE."""
@@ -240,13 +376,12 @@ class BurbujaChat(ctk.CTkFrame):
     def _burbuja_ia(self, texto, avatar, timestamp):
         fila = ctk.CTkFrame(self, fg_color="transparent")
         fila.pack(fill="x", anchor="w")
-        avatar_frame = ctk.CTkFrame(fila, width=36, height=36, corner_radius=18, fg_color="transparent")
-        avatar_frame.pack(side="left", anchor="n", padx=(0, 10), pady=2)
-        avatar_frame.pack_propagate(False)
+        self._avatar_frame = ctk.CTkFrame(fila, width=36, height=36, corner_radius=18, fg_color="transparent")
+        self._avatar_frame.pack(side="left", anchor="n", padx=(0, 10), pady=2)
+        self._avatar_frame.pack_propagate(False)
         if avatar:
-            ctk.CTkLabel(avatar_frame, image=avatar, text="").pack(expand=True)
+            ctk.CTkLabel(self._avatar_frame, image=avatar, text="").pack(expand=True)
         else:
-            # Intentar cargar avatar.png como fallback
             try:
                 img = Image.open(recurso_path("avatar.png")).convert("RGBA")
                 s = min(img.size)
@@ -257,10 +392,10 @@ class BurbujaChat(ctk.CTkFrame):
                 out = Image.new("RGBA", (36, 36), (0,0,0,0))
                 out.paste(img, (0, 0), mask)
                 ctk_img = ctk.CTkImage(light_image=out, dark_image=out, size=(36, 36))
-                ctk.CTkLabel(avatar_frame, image=ctk_img, text="").pack(expand=True)
-                avatar_frame._img_ref = ctk_img
+                ctk.CTkLabel(self._avatar_frame, image=ctk_img, text="").pack(expand=True)
+                self._avatar_frame._img_ref = ctk_img
             except Exception:
-                ctk.CTkLabel(avatar_frame, text="D", font=("Georgia", 14, "bold"), text_color="white").pack(expand=True)
+                ctk.CTkLabel(self._avatar_frame, text="D", font=("Georgia", 14, "bold"), text_color="white").pack(expand=True)
         contenido = ctk.CTkFrame(fila, fg_color="transparent")
         contenido.pack(side="left", fill="x", expand=True)
         cabecera = ctk.CTkFrame(contenido, fg_color="transparent")
@@ -432,7 +567,13 @@ class DigiHelpApp(ctk.CTk):
     def __init__(self, usuario_data):
         super().__init__()
         self.usuario_data = usuario_data  # dict con datos del usuario logueado
-        ctk.set_appearance_mode("light")
+        self._usuario_id  = usuario_data.get("id")
+
+        # Cargar y aplicar preferencias del usuario desde DB
+        prefs_usuario = cargar_prefs_db(self._usuario_id)
+        aplicar_tema(prefs_usuario)
+
+        ctk.set_appearance_mode("dark" if prefs_usuario.get("tema") == "oscuro" else "light")
         self.title("DigiHelp AI — Soporte IT Corporativo")
         self.geometry("1200x800")
         self.minsize(900, 600)
@@ -461,8 +602,6 @@ class DigiHelpApp(ctk.CTk):
         self.welcome = None
         self._vlc_instance = None
         self._vlc_player   = None
-
-        os.makedirs("conversaciones", exist_ok=True)
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -523,51 +662,41 @@ class DigiHelpApp(ctk.CTk):
     def cargar_sidebar(self):
         for w in self.lista_frame.winfo_children():
             w.destroy()
-        if not os.path.exists("conversaciones"):
-            return
-        for arch in sorted(os.listdir("conversaciones"), reverse=True):
-            if not arch.endswith(".json"):
-                continue
-            try:
-                with open(f"conversaciones/{arch}", encoding="utf-8") as f:
-                    data = json.load(f)
+        chats = cargar_chats_db(self._usuario_id)
+        for chat in chats:
+            titulo   = (chat.get("titulo") or "Chat sin título").strip()
+            fecha    = chat.get("fecha", "")
+            chat_id  = chat.get("chat_id", "")
+            texto_btn = "💬  " + titulo[:26] + "\n" + fecha
+            btn = ctk.CTkButton(
+                self.lista_frame,
+                text=texto_btn,
+                font=("Helvetica", 12),
+                height=56,
+                corner_radius=8,
+                fg_color=C["sidebar_btn"],
+                hover_color=C["sidebar_hover"],
+                text_color="white",
+                anchor="w",
+                command=lambda cid=chat_id: self.cargar_chat(cid)
+            )
+            btn.pack(fill="x", pady=3, padx=4)
 
-                # Ignorar chats vacíos (solo tienen el system prompt)
-                mensajes_reales = [m for m in data.get("mensajes", []) if m["role"] != "system"]
-                if not mensajes_reales:
-                    continue
-
-                titulo = data.get("titulo", "").strip() or "Chat sin título"
-                fecha  = data.get("fecha", "")
-
-                # Usar CTkButton directamente — área de click completa garantizada
-                texto_btn = "💬  " + titulo[:26] + "\n" + fecha
-                btn = ctk.CTkButton(
-                    self.lista_frame,
-                    text=texto_btn,
-                    font=("Helvetica", 12),
-                    height=56,
-                    corner_radius=8,
-                    fg_color=C["sidebar_btn"],
-                    hover_color=C["sidebar_hover"],
-                    text_color="white",
-                    anchor="w",
-                    command=lambda a=arch: self.cargar_chat(a)
-                )
-                btn.pack(fill="x", pady=3, padx=4)
-            except Exception:
-                pass
-
-    def cargar_chat(self, archivo):
+    def cargar_chat(self, chat_id):
         try:
-            with open(f"conversaciones/{archivo}", encoding="utf-8") as f:
-                data = json.load(f)
-            self.historial = data["mensajes"]
+            chats = cargar_chats_db(self._usuario_id)
+            chat  = next((c for c in chats if c["chat_id"] == chat_id), None)
+            if not chat:
+                return
+            mensajes = json.loads(chat["mensajes"]) if isinstance(chat["mensajes"], str) else chat["mensajes"]
+            self.historial = mensajes
+            self._chat_archivo = chat_id
+            self._chat_titulo  = chat.get("titulo", "")
             self._limpiar_chat()
             for m in self.historial:
                 if m["role"] == "system":
                     continue
-                contenido = m["content"]
+                contenido   = m["content"]
                 imagen_ruta = m.get("imagen_ruta", None)
                 if isinstance(contenido, list):
                     texto = next((p["text"] for p in contenido if p.get("type") == "text"), "📎 Imagen adjunta")
@@ -576,11 +705,10 @@ class DigiHelpApp(ctk.CTk):
                     texto = contenido
                 BurbujaChat(self.chat_frame, texto, es_ia=(m["role"] == "assistant"),
                             avatar_ia=self.avatar_ia, imagen_ruta=imagen_ruta)
-            # Forzar actualización del layout antes de scrollear
             self.chat_frame.update_idletasks()
             self.after(50, self._scroll_arriba)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Chat] Error cargando: {e}")
 
     def _construir_main(self):
         self.main = ctk.CTkFrame(self, fg_color=C["bg_app"])
@@ -598,24 +726,36 @@ class DigiHelpApp(ctk.CTk):
         header = self._header
         header.grid(row=0, column=0, columnspan=2, sticky="ew")
         header.grid_propagate(False)
-        self.btn_toggle = ctk.CTkButton(header, text="☰", width=40, height=40,
-            fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"],
-            font=("Helvetica", 18), corner_radius=8, command=self.toggle_sidebar)
-        self.btn_toggle.pack(side="left", padx=12)
+
+        # Izquierda: solo título
         ctk.CTkLabel(header, text="Soporte de Incidencias IT", font=("Helvetica", 16, "bold"),
-                     text_color=C["text_dark"]).pack(side="left", padx=4)
-        # Info del usuario logueado (derecha del header)
+                     text_color=C["text_dark"]).pack(side="left", padx=16)
+
+        # Derecha: info usuario + "En línea" + botones juntos
         nombre = self.usuario_data.get("nombre_completo", "")
         depto  = self.usuario_data.get("departamento", "")
-        ctk.CTkLabel(header, text=f"👤  {nombre}  |  {depto}",
-                     font=("Helvetica", 12), text_color=C["text_muted"]).pack(side="right", padx=12)
-        ctk.CTkLabel(header, text="● En línea", font=("Helvetica", 12), text_color="#22C55E").pack(side="right", padx=(20,4))
-        # Botón de personalización
-        self.btn_prefs = ctk.CTkButton(header, text="⚙️", width=40, height=40,
+
+        # Grupo de botones de icono pegados (☰ y ⚙ juntos)
+        btn_group = ctk.CTkFrame(header, fg_color="transparent")
+        btn_group.pack(side="right", padx=(0, 12))
+
+        self.btn_prefs = ctk.CTkButton(btn_group, text="⚙", width=32, height=32,
             fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"],
-            font=("Helvetica", 18), corner_radius=8, command=self._abrir_personalizacion)
-        self.btn_prefs.pack(side="right", padx=(0, 8))
+            font=("Helvetica", 16), corner_radius=6, command=self._abrir_personalizacion)
+        self.btn_prefs.pack(side="left", padx=2)
+
+        self.btn_toggle = ctk.CTkButton(btn_group, text="☰", width=32, height=32,
+            fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"],
+            font=("Helvetica", 16), corner_radius=6, command=self.toggle_sidebar)
+        self.btn_toggle.pack(side="left", padx=2)
+
         self._ventana_prefs = None
+
+        # Info usuario
+        ctk.CTkLabel(header, text=f"👤  {nombre}  |  {depto}",
+                     font=("Helvetica", 11), text_color=C["text_muted"]).pack(side="right", padx=(0, 12))
+        ctk.CTkLabel(header, text="● En línea", font=("Helvetica", 11),
+                     text_color="#22C55E").pack(side="right", padx=(0, 16))
 
     def _construir_area_chat(self):
         self.chat_frame = ctk.CTkScrollableFrame(self.main, fg_color=C["bg_app"], scrollbar_button_color=C["border"])
@@ -693,35 +833,39 @@ class DigiHelpApp(ctk.CTk):
         bx = self.btn_adjuntar.winfo_rootx()
         by = self.btn_adjuntar.winfo_rooty()
 
-        # Crear ventana popup sin bordes
-        popup = ctk.CTkToplevel(self)
+        # Crear ventana popup sin bordes y con esquinas redondeadas
+        import tkinter as tk
+        popup = tk.Toplevel(self)
         popup.overrideredirect(True)
         popup.attributes("-topmost", True)
-        popup.configure(fg_color=C["card"])
+        popup.configure(bg="#000001")  # color transparente
+        try:
+            popup.attributes("-transparentcolor", "#000001")  # Windows: esquinas redondeadas
+        except Exception:
+            popup.configure(bg=C["card"])
         popup.resizable(False, False)
 
-        # Borde manual con frame exterior
-        outer = ctk.CTkFrame(popup, fg_color=C["card"], corner_radius=12,
-                             border_width=1, border_color=C["border"])
-        outer.pack(fill="both", expand=True, padx=1, pady=1)
+        # Frame con esquinas redondeadas visibles
+        outer = ctk.CTkFrame(popup, fg_color=C["card"], corner_radius=14, border_width=0)
+        outer.pack(fill="both", expand=True, padx=6, pady=6)
 
         ctk.CTkLabel(outer, text="Adjuntar archivo",
             font=("Helvetica", 11, "bold"), text_color=C["text_muted"]).pack(
-            pady=(10, 4), padx=16, anchor="w")
+            pady=(12, 6), padx=16, anchor="w")
 
         ctk.CTkButton(outer, text="  🖼️   Imagen",
-            height=40, corner_radius=8, anchor="w", width=190,
+            height=40, corner_radius=8, anchor="w", width=200,
             fg_color="transparent", hover_color=C["bg_app"],
             text_color=C["text_dark"], font=("Helvetica", 13),
             command=lambda: [self._cerrar_panel_adjuntar(), self._adjuntar_imagen()]
-        ).pack(fill="x", padx=8, pady=2)
+        ).pack(fill="x", padx=6, pady=2)
 
         ctk.CTkButton(outer, text="  📄   Documento",
-            height=40, corner_radius=8, anchor="w", width=190,
+            height=40, corner_radius=8, anchor="w", width=200,
             fg_color="transparent", hover_color=C["bg_app"],
             text_color=C["text_dark"], font=("Helvetica", 13),
             command=lambda: [self._cerrar_panel_adjuntar(), self._adjuntar_documento()]
-        ).pack(fill="x", padx=8, pady=(2, 10))
+        ).pack(fill="x", padx=6, pady=(0, 10))
 
         # Posicionar encima del botón
         popup.update_idletasks()
@@ -914,7 +1058,7 @@ class DigiHelpApp(ctk.CTk):
         else:
             texto_burbuja = msg
         ruta_img = imagen[0] if imagen else None
-        BurbujaChat(self.chat_frame, texto_burbuja, es_ia=False, timestamp=ts, imagen_ruta=ruta_img)
+        BurbujaChat(self.chat_frame, texto_burbuja, es_ia=False, timestamp=ts, imagen_ruta=ruta_img, animar=True)
         self._scroll_abajo()
 
         es_primero = len([m for m in self.historial if m["role"] == "user"]) == 0
@@ -927,13 +1071,9 @@ class DigiHelpApp(ctk.CTk):
 
     def _fijar_titulo(self, texto_usuario):
         titulo = self._generar_titulo(texto_usuario)
-        nuevo_archivo = "".join(c for c in titulo if c.isalnum() or c in " _-")[:40].strip()
-        if nuevo_archivo and nuevo_archivo != self._chat_archivo:
-            viejo = f"conversaciones/{self._chat_archivo}.json"
-            if os.path.exists(viejo):
-                os.remove(viejo)
-            self._chat_archivo = nuevo_archivo
-        self._chat_titulo = titulo
+        self._chat_titulo  = titulo
+        if not self._chat_archivo:
+            self._chat_archivo = self.chat_id
 
     def _responder_ia(self, texto_usuario, es_primero, ts, imagen=None, doc=None):
         # Fijar archivo desde el principio para todos los mensajes del chat
@@ -996,8 +1136,9 @@ class DigiHelpApp(ctk.CTk):
         creada = threading.Event()
 
         def crear_burbuja():
-            burbuja_ref[0] = BurbujaChat(self.chat_frame, "⏳ Analizando tu incidencia…",
-                                         es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts)
+            burbuja_ref[0] = BurbujaChat(self.chat_frame, "⏳ Escribiendo",
+                                         es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts, animar=True)
+            burbuja_ref[0].iniciar_puntos()
             self._scroll_abajo()
             creada.set()
 
@@ -1025,6 +1166,8 @@ class DigiHelpApp(ctk.CTk):
                     respuesta += delta
                     snap = respuesta
                     if burbuja_ref[0]:
+                        if hasattr(burbuja_ref[0], '_puntos_activos') and burbuja_ref[0]._puntos_activos:
+                            burbuja_ref[0].detener_puntos()
                         self.after(0, lambda t=snap: burbuja_ref[0].actualizar_texto(t))
                     self.after(0, self._scroll_abajo)
 
@@ -1075,9 +1218,13 @@ class DigiHelpApp(ctk.CTk):
         else:
             msg_ticket = "⚠️ No se pudo crear el ticket. Por favor contacta directamente con el equipo de IT."
 
+        # Añadir al historial y mostrar en el chat
+        self.historial.append({"role": "assistant", "content": msg_ticket})
         self.after(0, lambda m=msg_ticket: BurbujaChat(
             self.chat_frame, m, es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts))
         self.after(0, self._scroll_abajo)
+        self._guardar_chat()
+        self.after(0, self.cargar_sidebar)
         self._intentos = 0
         self._problema_inicial = None
         self._esperando_confirmacion = False
@@ -1088,7 +1235,7 @@ class DigiHelpApp(ctk.CTk):
         if not self._chat_titulo:
             self._chat_titulo = self._chat_archivo
 
-        # Limpiar mensajes con imagen antes de guardar (no guardar base64, sí guardar ruta)
+        # Limpiar mensajes con imagen antes de guardar
         mensajes_limpios = []
         for m in self.historial:
             if isinstance(m["content"], list):
@@ -1102,13 +1249,9 @@ class DigiHelpApp(ctk.CTk):
             else:
                 mensajes_limpios.append(m)
 
-        datos = {
-            "titulo": self._chat_titulo,
-            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "mensajes": mensajes_limpios
-        }
-        with open(f"conversaciones/{self._chat_archivo}.json", "w", encoding="utf-8") as f:
-            json.dump(datos, f, ensure_ascii=False, indent=2)
+        fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+        mensajes_json = json.dumps(mensajes_limpios, ensure_ascii=False)
+        guardar_chat_db(self._usuario_id, self._chat_archivo, self._chat_titulo, fecha, mensajes_json)
 
     def _generar_titulo(self, msg):
         try:
@@ -1453,7 +1596,8 @@ class DigiHelpApp(ctk.CTk):
 
         def _aplicar():
             nuevas = {"tema": tema_var.get(), "acento": acento_var.get(), "fuente": int(fuente_var.get())}
-            guardar_prefs(nuevas)
+            guardar_prefs(nuevas)                          # fallback local
+            guardar_prefs_db(self._usuario_id, nuevas)    # DB por usuario
             aplicar_tema(nuevas)
             win.destroy()
             self._ventana_prefs = None
