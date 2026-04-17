@@ -43,9 +43,9 @@ Incluye un sistema de **login corporativo con MySQL**, gestión de tickets autom
 - 🖼️ **Análisis de imágenes** — Adjunta capturas de pantalla o fotos de dispositivos para que la IA las analice (LLaMA 4 Scout Vision)
 - 📄 **Soporte de documentos** — Adjunta PDF, Word, Excel o TXT como contexto adicional
 - 🎬 **Tutoriales en vídeo** — Reproductor integrado que lanza vídeos automáticamente al detectar palabras clave
-- 💾 **Historial de conversaciones** — Guarda y recupera chats anteriores desde la sidebar
+- ☁️ **Sincronización en la nube** — El historial de conversaciones y tus preferencias se guardan en MySQL vinculados a tu usuario.
 - 🎫 **Tickets automáticos** — Crea incidencias en la base de datos con urgencia detectada automáticamente
-- ⚙️ **Panel de personalización** — Tema claro/oscuro, 6 colores de acento y tamaño de fuente ajustable
+- ⚙️ **Panel de personalización** — Tema claro/oscuro, 6 colores de acento y tamaño de fuente ajustable (sincronizado con tu cuenta).
 - 🔒 **Configuración segura** — Credenciales gestionadas mediante archivo `.env`
 
 ---
@@ -64,31 +64,87 @@ Incluye un sistema de **login corporativo con MySQL**, gestión de tickets autom
 CREATE DATABASE digihelp;
 USE digihelp;
 
-CREATE TABLE usuarios (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    contrasenia VARCHAR(255) NOT NULL,
-    nombre_completo VARCHAR(100),
-    departamento VARCHAR(100),
-    email VARCHAR(100)
-);
+CREATE TABLE `chats` (
+  `id` int(11) NOT NULL,
+  `usuario_id` int(11) NOT NULL,
+  `chat_id` varchar(100) NOT NULL,
+  `titulo` varchar(200) DEFAULT NULL,
+  `fecha` varchar(50) DEFAULT NULL,
+  `mensajes` longtext DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE incidencias (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    usuario VARCHAR(100),
-    departamento VARCHAR(100),
-    email VARCHAR(100),
-    problema TEXT,
-    urgencia ENUM('baja', 'media', 'alta') DEFAULT 'media',
-    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+CREATE TABLE `incidencias` (
+  `id` int(11) NOT NULL,
+  `usuario` varchar(100) NOT NULL,
+  `problema` text NOT NULL,
+  `urgencia` enum('baja','media','alta') DEFAULT 'media',
+  `estado` enum('pendiente','en_proceso','resuelta') DEFAULT 'pendiente',
+  `fecha` datetime DEFAULT current_timestamp(),
+  `departamento` varchar(100) DEFAULT NULL,
+  `email` varchar(150) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE videos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    palabra_clave VARCHAR(100),
-    ruta_video VARCHAR(255),
-    mensaje TEXT
-);
+CREATE TABLE `preferencias` (
+  `id` int(11) NOT NULL,
+  `usuario_id` int(11) NOT NULL,
+  `prefs` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `usuarios` (
+  `id` int(11) NOT NULL,
+  `username` varchar(50) NOT NULL,
+  `nombre_completo` varchar(100) NOT NULL,
+  `departamento` varchar(50) DEFAULT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `contrasenia` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `videos` (
+  `id` int(11) NOT NULL,
+  `palabra_clave` varchar(100) NOT NULL,
+  `ruta_video` varchar(255) NOT NULL,
+  `mensaje` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `chats`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_usuario_chat` (`usuario_id`,`chat_id`);
+
+ALTER TABLE `incidencias`
+  ADD PRIMARY KEY (`id`);
+
+ALTER TABLE `preferencias`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `usuario_id` (`usuario_id`);
+
+ALTER TABLE `usuarios`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `username` (`username`);
+
+ALTER TABLE `videos`
+  ADD PRIMARY KEY (`id`);
+
+ALTER TABLE `chats`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+
+ALTER TABLE `incidencias`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+
+ALTER TABLE `preferencias`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+
+ALTER TABLE `usuarios`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+ALTER TABLE `videos`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+ALTER TABLE `chats`
+  ADD CONSTRAINT `chats_ibfk_1` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `preferencias`
+  ADD CONSTRAINT `preferencias_ibfk_1` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE;
+
 ```
 
 ---
@@ -266,7 +322,7 @@ python -m PyInstaller --onefile --windowed ^
 Sí. GroqCloud ofrece una capa gratuita generosa. Solo necesitarás pagar si superas los límites de uso (prácticamente imposible para uso empresarial normal).
 
 **¿Los datos se envían a la nube?**
-Los mensajes de texto e imágenes se envían a la API de Groq para procesarlos. Las conversaciones se guardan **localmente** en tu equipo en la carpeta `conversaciones/`. Las credenciales nunca salen de tu red.
+Los mensajes de texto e imágenes se envían a la API de Groq para procesarlos. El historial de tus conversaciones y la personalización de tu interfaz se guardan **de forma segura en la base de datos MySQL de tu empresa**, asociadas a tu usuario corporativo. Las credenciales de la API nunca salen de tu red local.
 
 **¿Funciona sin internet?**
 No. La IA requiere conexión para llamar a la API de Groq. Los vídeos de tutoriales sí se reproducen sin internet.
