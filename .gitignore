@@ -4,3 +4,4 @@ output/
 conversaciones/
 .env
 preferencias.json
+service_account.json

@@ -13,6 +13,12 @@ import mysql.connector
 import fitz          # pymupdf
 from docx import Document as DocxDocument
 import openpyxl
+import tempfile
+import requests
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import io
 
 def recurso_path(relative_path):
     import sys
@@ -38,6 +44,52 @@ def _cargar_env():
 _cargar_env()
 
 API_KEY = os.environ.get("GROQ_API_KEY", "")  # Define GROQ_API_KEY en tu .env
+
+# ─────────────────────────────────────────────
+#  CONFIGURACIÓN GOOGLE DRIVE (SERVICE ACCOUNT)
+# ─────────────────────────────────────────────
+DRIVE_SERVICE_ACCOUNT_FILE = recurso_path(
+    os.environ.get("DRIVE_SERVICE_ACCOUNT_FILE", "service_account.json")
+)
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+def _get_drive_service():
+    """Devuelve un cliente autenticado de Google Drive."""
+    creds = service_account.Credentials.from_service_account_file(
+        DRIVE_SERVICE_ACCOUNT_FILE, scopes=DRIVE_SCOPES
+    )
+    return build("drive", "v3", credentials=creds)
+
+def descargar_video_drive(drive_id):
+    """
+    Descarga un video de Google Drive por su file_id a un archivo temporal.
+    Devuelve la ruta del temporal o None si falla.
+
+    El 'drive_id' es el ID que aparece en la URL de Drive:
+        https://drive.google.com/file/d/ESTE_ES_EL_ID/view
+    """
+    try:
+        service  = _get_drive_service()
+        meta     = service.files().get(fileId=drive_id, fields="name,mimeType").execute()
+        nombre   = meta.get("name", "video.mp4")
+        ext      = os.path.splitext(nombre)[1] or ".mp4"
+
+        request  = service.files().get_media(fileId=drive_id)
+        buf      = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request, chunksize=8 * 1024 * 1024)
+
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(buf.getvalue())
+        tmp.close()
+        print(f"[Drive] Video descargado → {tmp.name} ({len(buf.getvalue())/1024/1024:.1f} MB)")
+        return tmp.name
+    except Exception as e:
+        print(f"[Drive] Error descargando video: {e}")
+        return None
 
 # ─────────────────────────────────────────────
 #  CONFIGURACIÓN MySQL
@@ -289,6 +341,37 @@ FUENTE = 13
 # Cargar y aplicar preferencias al inicio
 _prefs_globales = cargar_prefs()
 aplicar_tema(_prefs_globales)
+
+def _extraer_drive_id(valor):
+    """
+    Extrae el file ID de Google Drive de un valor que puede ser:
+      - El ID directamente:   1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs
+      - URL completa:         https://drive.google.com/file/d/ID/view
+      - URL de descarga:      https://drive.google.com/uc?id=ID
+    Devuelve el ID si lo detecta, o None si parece una ruta local.
+    """
+    if not valor:
+        return None
+    # URL tipo /file/d/ID/
+    if "drive.google.com/file/d/" in valor:
+        try:
+            return valor.split("/file/d/")[1].split("/")[0].split("?")[0]
+        except Exception:
+            return None
+    # URL tipo ?id=ID
+    if "drive.google.com" in valor and "id=" in valor:
+        try:
+            return valor.split("id=")[1].split("&")[0]
+        except Exception:
+            return None
+    # Si no tiene separadores de ruta ni extensión de video, asumimos que es un ID directo
+    extensiones_video = (".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm")
+    tiene_extension = any(valor.lower().endswith(e) for e in extensiones_video)
+    tiene_separador = os.sep in valor or "/" in valor or "\\" in valor
+    if not tiene_extension and not tiene_separador and len(valor) > 10:
+        return valor  # parece un ID de Drive
+    return None
+
 
 class BurbujaChat(ctk.CTkFrame):
     def __init__(self, parent, texto, es_ia, avatar_ia=None, timestamp="", imagen_ruta=None, animar=False):
@@ -602,6 +685,7 @@ class DigiHelpApp(ctk.CTk):
         self.welcome = None
         self._vlc_instance = None
         self._vlc_player   = None
+        self._video_temp   = None   # archivo temporal descargado de Drive
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -1263,6 +1347,13 @@ class DigiHelpApp(ctk.CTk):
             return "Incidencia IT"
 
     def _buscar_video(self, texto):
+        """
+        Busca un video por palabra clave.
+        El campo ruta_video puede ser:
+          - Un ID de Google Drive (solo el ID, ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs)
+          - Una URL de Drive (https://drive.google.com/file/d/ID/view)
+          - Una ruta local (C:\\videos\\video.mp4 o relativa)
+        """
         if not texto:
             return None, None
         try:
@@ -1275,18 +1366,48 @@ class DigiHelpApp(ctk.CTk):
             texto_lower = texto.lower()
             for row in rows:
                 if row["palabra_clave"].lower() in texto_lower:
-                    return row["ruta_video"], row.get("mensaje")
+                    ruta = row.get("ruta_video", "") or ""
+                    drive_id = _extraer_drive_id(ruta)
+                    if drive_id:
+                        # ── Es un video de Google Drive: descargar a temp ──
+                        burbuja_descarga = [None]
+                        ts = datetime.now().strftime("%H:%M")
+                        self.after(0, lambda: self._mostrar_descargando(burbuja_descarga, ts))
+                        ruta_temp = descargar_video_drive(drive_id)
+                        self.after(0, lambda b=burbuja_descarga: self._ocultar_descargando(b))
+                        if ruta_temp:
+                            self._video_temp = ruta_temp
+                            return ruta_temp, row.get("mensaje")
+                        else:
+                            return None, None
+                    else:
+                        # ── Ruta local (comportamiento original) ──
+                        return ruta, row.get("mensaje")
         except Exception as e:
             print(f"[DB] Error: {e}")
         return None, None
 
+    def _mostrar_descargando(self, ref, ts):
+        ref[0] = BurbujaChat(self.chat_frame,
+                             "⏳ Descargando tutorial desde Drive…",
+                             es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts)
+        self._scroll_abajo()
+
+    def _ocultar_descargando(self, ref):
+        try:
+            if ref[0]:
+                ref[0].destroy()
+        except Exception:
+            pass
+
     def reproducir_video(self, ruta_video):
+        # Si es una ruta temporal (descargada de Drive) ya es absoluta y existe
         if not os.path.isabs(ruta_video):
             ruta_video = recurso_path(ruta_video)
         if not os.path.exists(ruta_video):
             print(f"[Video] No encontrado: {ruta_video}")
             return
-        self.cerrar_video()
+        self.cerrar_video(borrar_temp=False)  # no borramos el temp que acabamos de descargar
 
         # ── Instancia VLC ─────────────────────────────
         self._vlc_instance = vlc.Instance("--no-xlib")
@@ -1434,7 +1555,7 @@ class DigiHelpApp(ctk.CTk):
         except Exception:
             pass
 
-    def cerrar_video(self):
+    def cerrar_video(self, borrar_temp=True):
         self.video_activo = False
         if self._vlc_player:
             try:
@@ -1451,6 +1572,14 @@ class DigiHelpApp(ctk.CTk):
             self._vlc_instance = None
         if hasattr(self, "_ventana_video") and self._ventana_video.winfo_exists():
             self._ventana_video.destroy()
+        # Borrar archivo temporal descargado de Drive
+        if borrar_temp and hasattr(self, "_video_temp") and self._video_temp:
+            try:
+                os.unlink(self._video_temp)
+                print(f"[Drive] Temp eliminado: {self._video_temp}")
+            except Exception:
+                pass
+            self._video_temp = None
         # Compatibilidad con cerrar_sesion
         self.video_cap = None
 
