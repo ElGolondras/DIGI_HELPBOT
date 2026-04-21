@@ -1089,7 +1089,7 @@ class DigiHelpApp(ctk.CTk):
                 "no", "sigue", "todavía", "aún", "nada", "no funciona",
                 "no va", "igual", "mismo", "sin funcionar", "tampoco",
                 "sigue igual", "no me va", "no sirve", "no ha funcionado",
-                "no funciona", "mal", "peor", "falla"
+                "no funciona", "mal", "peor", "falla", "que va"
             ])
             # Solo marcar como resuelto si NO hay palabras negativas
             resuelto = not no_resuelto and any(p in msg_lower for p in [
