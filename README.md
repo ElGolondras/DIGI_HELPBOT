@@ -6,9 +6,10 @@
 ![CustomTkinter](https://img.shields.io/badge/CustomTkinter-5.x-1B2A4A?style=for-the-badge)
 ![Groq](https://img.shields.io/badge/Groq_API-LLaMA_3.3-F55036?style=for-the-badge)
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+![Google Drive](https://img.shields.io/badge/Google_Drive-API_v3-34A853?style=for-the-badge&logo=googledrive&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)
 
-**Asistente de soporte técnico IT con IA, login corporativo, análisis de imágenes y tutoriales en vídeo.**
+**Asistente de soporte técnico IT con IA, login corporativo, análisis de imágenes y tutoriales en vídeo desde Google Drive.**
 
 </div>
 
@@ -21,6 +22,8 @@
 - [Requisitos previos](#-requisitos-previos)
 - [Instalación](#-instalación)
 - [Configuración](#-configuración)
+- [Google Drive — Tutoriales en vídeo](#-google-drive--tutoriales-en-vídeo)
+- [Base de datos en la nube](#-base-de-datos-en-la-nube)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Compilar a .exe](#-compilar-a-exe)
 - [Uso](#-uso)
@@ -32,7 +35,7 @@
 
 DigiHelp AI es un chatbot de escritorio especializado en resolver **incidencias de soporte técnico IT** para empresas. Usa inteligencia artificial para guiar a los usuarios paso a paso en la resolución de problemas técnicos, con un lenguaje sencillo pensado para personas sin conocimientos informáticos.
 
-Incluye un sistema de **login corporativo con MySQL**, gestión de tickets automática, tutoriales en vídeo y un panel de personalización completo.
+Incluye un sistema de **login corporativo con MySQL**, gestión de tickets automática, tutoriales en vídeo desde **Google Drive** y un panel de personalización completo. La base de datos está alojada en la nube (**Clever Cloud**), por lo que el bot funciona desde cualquier sitio con conexión a internet.
 
 ---
 
@@ -42,10 +45,11 @@ Incluye un sistema de **login corporativo con MySQL**, gestión de tickets autom
 - 💬 **Chat con IA** — Respuestas en tiempo real con streaming usando LLaMA 3.3 70B vía Groq
 - 🖼️ **Análisis de imágenes** — Adjunta capturas de pantalla o fotos de dispositivos para que la IA las analice (LLaMA 4 Scout Vision)
 - 📄 **Soporte de documentos** — Adjunta PDF, Word, Excel o TXT como contexto adicional
-- 🎬 **Tutoriales en vídeo** — Reproductor integrado que lanza vídeos automáticamente al detectar palabras clave
-- ☁️ **Sincronización en la nube** — El historial de conversaciones y tus preferencias se guardan en MySQL vinculados a tu usuario.
+- 🎬 **Tutoriales en vídeo desde Google Drive** — Los vídeos se almacenan en Google Drive y se descargan automáticamente al detectar palabras clave. No es necesario tener los vídeos en local
+- ☁️ **Sincronización en la nube** — El historial de conversaciones y preferencias se guardan en MySQL (Clever Cloud) vinculados a tu usuario, accesible desde cualquier PC
+- 🌍 **Acceso desde cualquier sitio** — La base de datos está en la nube. Solo necesitas el ejecutable e internet
 - 🎫 **Tickets automáticos** — Crea incidencias en la base de datos con urgencia detectada automáticamente
-- ⚙️ **Panel de personalización** — Tema claro/oscuro, 6 colores de acento y tamaño de fuente ajustable (sincronizado con tu cuenta).
+- ⚙️ **Panel de personalización** — Tema claro/oscuro, 6 colores de acento y tamaño de fuente ajustable (sincronizado con tu cuenta)
 - 🔒 **Configuración segura** — Credenciales gestionadas mediante archivo `.env`
 
 ---
@@ -54,8 +58,10 @@ Incluye un sistema de **login corporativo con MySQL**, gestión de tickets autom
 
 - **Python 3.10 o superior** — [Descargar desde python.org](https://www.python.org/downloads/)
   > ⚠️ Al instalar, marca la casilla **"Add Python to PATH"**
-- **MySQL 8.x** con las tablas `usuarios` e `incidencias` creadas
 - **Cuenta en GroqCloud** — [Crear cuenta gratis en console.groq.com](https://console.groq.com)
+- **Cuenta en Clever Cloud** — [clever-cloud.com](https://clever-cloud.com) (base de datos MySQL gratuita en la nube)
+- **Cuenta de Google** con Google Drive y un proyecto en [Google Cloud Console](https://console.cloud.google.com) para la autenticación de vídeos
+- **VLC Media Player** instalado en cada PC que use el bot — [videolan.org](https://www.videolan.org)
 - **Git** (opcional, para clonar el repositorio)
 
 ### Esquema de base de datos necesario
@@ -125,26 +131,25 @@ ALTER TABLE `videos`
   ADD PRIMARY KEY (`id`);
 
 ALTER TABLE `chats`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 ALTER TABLE `incidencias`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 ALTER TABLE `preferencias`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 ALTER TABLE `usuarios`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 ALTER TABLE `videos`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 ALTER TABLE `chats`
   ADD CONSTRAINT `chats_ibfk_1` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE;
 
 ALTER TABLE `preferencias`
   ADD CONSTRAINT `preferencias_ibfk_1` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE;
-
 ```
 
 ---
@@ -167,25 +172,35 @@ cd DIGI_HELPBOT
 ### Paso 2 — Instalar las dependencias
 
 ```bash
-python -m pip install customtkinter pillow opencv-python groq pymupdf python-docx openpyxl mysql-connector-python
+pip install customtkinter pillow groq pymupdf python-docx openpyxl mysql-connector-python python-vlc google-auth google-auth-httplib2 google-api-python-client requests
 ```
 
 ### Paso 3 — Configurar el archivo `.env`
 
-Crea un archivo llamado `.env` en la carpeta raíz del proyecto con este contenido:
+Crea un archivo llamado `.env` en la carpeta raíz del proyecto:
 
 ```env
+# API de Groq
 GROQ_API_KEY=gsk_XXXXXXXXXXXXXXXXXXXXXXXX
-DB_HOST=localhost
+
+# Base de datos MySQL (Clever Cloud)
+DB_HOST=tu-host.services.clever-cloud.com
 DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=tu_contraseña
-DB_NAME=digihelp
+DB_USER=tu_usuario_clever
+DB_PASSWORD=tu_password_clever
+DB_NAME=tu_nombre_bd_clever
+
+# Google Drive Service Account (ruta al JSON descargado de Google Cloud)
+DRIVE_SERVICE_ACCOUNT_FILE=service_account.json
 ```
 
 > 🔑 Para obtener tu API Key de Groq: ve a [console.groq.com](https://console.groq.com) → **API Keys** → **Create API Key**
 
-### Paso 4 — Ejecutar la aplicación
+### Paso 4 — Colocar el Service Account de Google
+
+Descarga el archivo `service_account.json` desde Google Cloud Console (ver sección [Google Drive](#-google-drive--tutoriales-en-vídeo)) y colócalo en la carpeta raíz del proyecto junto al `.env`.
+
+### Paso 5 — Ejecutar la aplicación
 
 ```bash
 python Corazon-IA.py
@@ -201,20 +216,6 @@ Coloca tus imágenes en la carpeta raíz del proyecto:
 - `avatar.png` — Avatar circular del bot (cualquier tamaño, se recorta automáticamente)
 - `avatar.ico` — Icono de la ventana y barra de tareas (formato `.ico`)
 
-### Tutoriales en vídeo
-
-Los vídeos se configuran directamente en la tabla `videos` de MySQL:
-
-```sql
-INSERT INTO videos (palabra_clave, ruta_video, mensaje) VALUES
-('impresora', 'videos/tutorial_impresora.mp4', '🖨️ Te muestro cómo solucionar problemas de impresora paso a paso.'),
-('vpn', 'videos/tutorial_vpn.mp4', '🔐 Aquí tienes la guía para conectarte a la VPN de la empresa.');
-```
-
-Los vídeos deben estar en la carpeta `videos/` en formato `.mp4`.
-
-> 💡 Si una entrada tiene `mensaje` vacío (`NULL`), la IA responde normalmente y además se abre el vídeo.
-
 ### Panel de personalización
 
 Accede pulsando el botón **⚙️** en el header de la aplicación. Puedes cambiar:
@@ -222,7 +223,76 @@ Accede pulsando el botón **⚙️** en el header de la aplicación. Puedes camb
 - **Color de acento**: Azul, Violeta, Verde, Rojo, Naranja o Rosa
 - **Tamaño de fuente**: de 11 a 17 px
 
-Las preferencias se guardan automáticamente en `preferencias.json` y se aplican en cada inicio.
+Las preferencias se guardan en la base de datos vinculadas a tu usuario y se aplican en cada inicio de sesión.
+
+---
+
+## ☁️ Google Drive — Tutoriales en vídeo
+
+Los vídeos de tutorial ya **no necesitan estar en el PC local**. Se almacenan en Google Drive y el bot los descarga automáticamente cuando detecta una palabra clave en el chat. Una vez cerrado el reproductor, el archivo temporal se elimina solo.
+
+### Paso 1 — Crear el Service Account en Google Cloud
+
+1. Ve a [console.cloud.google.com](https://console.cloud.google.com)
+2. Crea un proyecto nuevo o usa uno existente
+3. Activa la **Google Drive API** → Biblioteca → busca "Drive API" → Activar
+4. Ve a **IAM y administración → Cuentas de servicio → Crear cuenta de servicio**
+5. Dale un nombre (ej: `digihelp-bot`) y continúa
+6. Entra en la cuenta creada → **Claves → Añadir clave → JSON**
+7. Descarga el archivo `.json`, renómbralo a `service_account.json` y ponlo en la carpeta del proyecto
+
+### Paso 2 — Compartir los vídeos con el Service Account
+
+1. Sube tus vídeos a Google Drive normalmente
+2. Click derecho en el vídeo → **Compartir**
+3. Pega el email del Service Account (algo como `digihelp-bot@tu-proyecto.iam.gserviceaccount.com`)
+4. Dale permisos de **Lector**
+
+### Paso 3 — Registrar el vídeo en la base de datos
+
+En el campo `ruta_video` de la tabla `videos` puedes guardar cualquiera de estos formatos:
+
+```sql
+-- Solo el ID de Drive (recomendado)
+INSERT INTO videos (palabra_clave, ruta_video, mensaje) VALUES
+('impresora', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs', '🖨️ Aquí tienes el tutorial de impresora.');
+
+-- O la URL completa de Drive
+INSERT INTO videos (palabra_clave, ruta_video, mensaje) VALUES
+('vpn', 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view', '🔐 Guía para conectarte a la VPN.');
+```
+
+> 💡 El ID de Drive se encuentra en la URL del archivo: `https://drive.google.com/file/d/**ESTE_ES_EL_ID**/view`
+
+> 💡 Las rutas locales (`videos/tutorial.mp4`) también siguen funcionando para compatibilidad con instalaciones anteriores.
+
+### Cómo funciona internamente
+
+```
+Usuario escribe "impresora"
+    → Bot detecta la palabra clave en la tabla videos
+    → Muestra "⏳ Descargando tutorial desde Drive…"
+    → Descarga el vídeo a un archivo temporal
+    → VLC lo reproduce en una ventana independiente
+    → Al cerrar el reproductor, el archivo temporal se elimina
+```
+
+---
+
+## 🌍 Base de datos en la nube
+
+La base de datos está alojada en **Clever Cloud** (MySQL gratuito), lo que permite usar el bot desde cualquier PC con internet sin depender de un servidor local como XAMPP.
+
+### Migrar desde XAMPP a Clever Cloud
+
+1. En phpMyAdmin → selecciona `digihelp` → **Exportar** → formato SQL → Continuar
+2. Crea una cuenta en [clever-cloud.com](https://clever-cloud.com)
+3. **Add an add-on → MySQL → Plan DEV** (gratuito)
+4. Anota los datos de conexión que te proporciona Clever Cloud
+5. Usa **DBeaver** ([dbeaver.io](https://dbeaver.io)) para conectarte a Clever Cloud e importar el `.sql`
+6. Actualiza el `.env` con los datos de Clever Cloud
+
+> ✅ El plan gratuito DEV de Clever Cloud soporta hasta 256 MB, más que suficiente para uso normal.
 
 ---
 
@@ -232,21 +302,18 @@ Las preferencias se guardan automáticamente en `preferencias.json` y se aplican
 DIGI_HELPBOT/
 │
 ├── Corazon-IA.py              # Archivo principal de la aplicación
-├── .env                       # Credenciales
-├── preferencias.json          # Preferencias de personalización (autogenerado)
+├── .env                       # Credenciales (no subir a Git)
+├── service_account.json       # Credenciales Google Drive (no subir a Git)
+├── preferencias.json          # Preferencias locales de fallback (autogenerado)
 │
-├── Imagenes/                  
-│   └── avatar.ico             # Icono de ventana (opcional)
-│   └── avatar.png             # Avatar del bot (opcional)
+├── avatar.png                 # Avatar del bot (opcional)
+├── avatar.ico                 # Icono de ventana (opcional)
 │
-├── videos/                    # Carpeta de vídeos de tutoriales
-│   └── tutorial.mp4
-│
-└── conversaciones/            # Generada automáticamente al usar la app
-    └── *.json
+└── videos/                    # Carpeta de vídeos locales (opcional, legacy)
+    └── tutorial.mp4
 ```
 
-> ⚠️ Añade `.env` a tu `.gitignore` para no exponer credenciales.
+> ⚠️ Añade `.env` y `service_account.json` a tu `.gitignore` para no exponer credenciales.
 
 ---
 
@@ -256,7 +323,7 @@ DIGI_HELPBOT/
 
 1. Instala la herramienta:
 ```bash
-python -m pip install auto-py-to-exe
+pip install auto-py-to-exe
 python -m auto_py_to_exe
 ```
 
@@ -265,20 +332,17 @@ python -m auto_py_to_exe
    - **Onefile:** ✅ One File
    - **Console Window:** ✅ Window Based (sin consola)
    - **Icon:** selecciona `avatar.ico` (opcional)
-   - **Additional Files:** añade `avatar.png`, `avatar.ico` y la carpeta `videos/`
-   - **Additional Files:** añade también el archivo `.env` con destino `.`
+   - **Additional Files:** añade `avatar.png`, `avatar.ico`, `.env` y `service_account.json`
 
 3. En la sección **Advanced** → campo `--collect-all`, añade:
 ```
 groq
 customtkinter
 mysql
-
+google
 ```
 
 4. Pulsa **CONVERT .PY TO .EXE** 🚀
-
-> ⚠️ El `.env` debe estar siempre en la **misma carpeta que el `.exe`** para que se carguen las credenciales correctamente.
 
 ### Opción B — Línea de comandos
 
@@ -286,16 +350,21 @@ mysql
 python -m PyInstaller --onefile --windowed ^
     --collect-all groq ^
     --collect-all customtkinter ^
+    --collect-all google ^
     --add-data "avatar.png;." ^
     --add-data "avatar.ico;." ^
     --add-data ".env;." ^
-    --add-data "videos;videos" ^
+    --add-data "service_account.json;." ^
     --icon "avatar.ico" ^
     --name "DigiHelp" ^
     Corazon-IA.py
 ```
 
+> ⚠️ El `.env` y el `service_account.json` deben estar siempre en la **misma carpeta que el `.exe`**.
+
 > 💡 El `.exe` generado solo funcionará en **Windows**. Para Mac/Linux hay que compilarlo en ese sistema operativo.
+
+> 💡 Cada PC que use el bot necesita tener **VLC Media Player** instalado.
 
 ---
 
@@ -307,7 +376,7 @@ python -m PyInstaller --onefile --windowed ^
 | Enviar mensaje | Escribe en el campo inferior y pulsa **Enter** o **Enviar ➤** |
 | Adjuntar imagen | Pulsa **📎** → **🖼️ Imagen** → selecciona el archivo |
 | Adjuntar documento | Pulsa **📎** → **📄 Documento** → selecciona PDF/Word/Excel/TXT |
-| Ver tutorial en vídeo | Escribe una palabra clave configurada en la tabla `videos` |
+| Ver tutorial en vídeo | Escribe una palabra clave configurada en la tabla `videos` (el bot descarga el vídeo de Drive automáticamente) |
 | Nuevo chat | Pulsa **＋ Nuevo chat** en la sidebar |
 | Retomar chat anterior | Haz clic en cualquier conversación de la sidebar |
 | Ocultar sidebar | Pulsa el botón **☰** en la esquina superior izquierda |
@@ -319,25 +388,31 @@ python -m PyInstaller --onefile --windowed ^
 ## ❓ FAQ
 
 **¿Es gratuito?**
-Sí. GroqCloud ofrece una capa gratuita generosa. Solo necesitarás pagar si superas los límites de uso (prácticamente imposible para uso empresarial normal).
+Sí. GroqCloud y Clever Cloud ofrecen capas gratuitas más que suficientes para uso empresarial normal. Google Drive también es gratuito hasta 15 GB.
+
+**¿Necesito internet para usarlo?**
+Sí. El bot requiere internet para conectarse a la API de Groq, a la base de datos en Clever Cloud y para descargar los vídeos de Google Drive.
 
 **¿Los datos se envían a la nube?**
-Los mensajes de texto e imágenes se envían a la API de Groq para procesarlos. El historial de tus conversaciones y la personalización de tu interfaz se guardan **de forma segura en la base de datos MySQL de tu empresa**, asociadas a tu usuario corporativo. Las credenciales de la API nunca salen de tu red local.
+Los mensajes e imágenes se envían a la API de Groq para procesarlos. El historial de conversaciones y la personalización se guardan en Clever Cloud asociados a tu usuario corporativo. Las credenciales nunca se exponen en el código.
 
-**¿Funciona sin internet?**
-No. La IA requiere conexión para llamar a la API de Groq. Los vídeos de tutoriales sí se reproducen sin internet.
+**¿El bot funciona desde cualquier PC?**
+Sí. Solo necesitas el `.exe` (o el `.py`), el `.env` con las credenciales y el `service_account.json` en la misma carpeta, además de VLC instalado y conexión a internet.
 
 **El .exe no conecta a la base de datos, ¿qué hago?**
-Asegúrate de que el archivo `.env` está en la **misma carpeta que el `.exe`**. Si el problema persiste, lanza el `.exe` desde consola para ver el error exacto:
+Asegúrate de que `.env` y `service_account.json` están en la **misma carpeta que el `.exe`**. Si el problema persiste, lanza el `.exe` desde consola para ver el error:
 ```bash
 DigiHelp.exe
 ```
 
-**El .exe no abre, ¿qué hago?**
-Asegúrate de haber incluido `--collect-all groq` y `--collect-all customtkinter` al compilar. Si sigue sin funcionar, ejecuta desde consola para ver el error.
+**El vídeo de Drive no se reproduce, ¿qué hago?**
+Comprueba que el vídeo está compartido con el email del Service Account y que ese email tiene permisos de **Lector**. Revisa también que el ID o URL guardado en la columna `ruta_video` es correcto.
 
 **¿Cómo cambio el nombre "DigiHelp AI" por el de mi empresa?**
 Busca en el código `DigiHelp AI` y `DigiHelp` y reemplázalos. También puedes modificar el `SYSTEM_PROMPT` para personalizar el comportamiento de la IA.
+
+**¿Puedo seguir usando vídeos locales en vez de Drive?**
+Sí. Si en `ruta_video` guardas una ruta local (`videos/tutorial.mp4`), el bot la usa directamente sin tocar Drive. Ambos modos son compatibles a la vez.
 
 ---
 
