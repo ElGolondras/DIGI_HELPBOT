@@ -704,23 +704,29 @@ class DigiHelpApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=72)
         logo_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 0))
         logo_frame.grid_propagate(False)
-        self._icono_frame = ctk.CTkFrame(logo_frame, width=38, height=38, corner_radius=19, fg_color=C["accent"])
+        ICON_SIZE = 46
+        self._icono_frame = ctk.CTkFrame(logo_frame, width=ICON_SIZE, height=ICON_SIZE,
+                                         corner_radius=ICON_SIZE // 2, fg_color=C["accent"])
         self._icono_frame.pack(side="left", padx=(0, 10))
         self._icono_frame.pack_propagate(False)
         try:
             img = Image.open(recurso_path("avatar.png")).convert("RGBA")
             s = min(img.size)
-            img = img.crop(((img.width-s)//2, (img.height-s)//2, (img.width+s)//2, (img.height+s)//2))
-            img = img.resize((38, 38), Image.LANCZOS)
-            mask = Image.new("L", (38, 38), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, 38, 38), fill=255)
-            out = Image.new("RGBA", (38, 38), (0,0,0,0))
+            img = img.crop(((img.width - s) // 2, (img.height - s) // 2,
+                            (img.width + s) // 2, (img.height + s) // 2))
+            img = img.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+            mask = Image.new("L", (ICON_SIZE, ICON_SIZE), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, ICON_SIZE - 1, ICON_SIZE - 1), fill=255)
+            out = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
             out.paste(img, (0, 0), mask)
-            ctk_logo = ctk.CTkImage(light_image=out, dark_image=out, size=(38, 38))
-            ctk.CTkLabel(self._icono_frame, image=ctk_logo, text="").pack(expand=True)
+            ctk_logo = ctk.CTkImage(light_image=out, dark_image=out, size=(ICON_SIZE, ICON_SIZE))
+            lbl = ctk.CTkLabel(self._icono_frame, image=ctk_logo, text="",
+                               width=ICON_SIZE, height=ICON_SIZE)
+            lbl.place(relx=0.5, rely=0.5, anchor="center")
             self._icono_frame._img_ref = ctk_logo
         except Exception:
-            ctk.CTkLabel(self._icono_frame, text="D", font=("Georgia", 18, "bold"), text_color="white").pack(expand=True)
+            ctk.CTkLabel(self._icono_frame, text="D", font=("Georgia", 20, "bold"),
+                         text_color="white").place(relx=0.5, rely=0.5, anchor="center")
         ctk.CTkLabel(logo_frame, text="DigiHelp AI", font=("Helvetica", 17, "bold"), text_color="white").pack(side="left", anchor="w")
 
         self.btn_nuevo = ctk.CTkButton(self.sidebar, text="＋  Nuevo chat", font=("Helvetica", 13, "bold"),
@@ -1103,7 +1109,7 @@ class DigiHelpApp(ctk.CTk):
                 self._intentos = 0
                 self._esperando_confirmacion = False
                 self._problema_inicial = None
-                BurbujaChat(self.chat_frame, "¡Perfecto! Me alegra que se haya resuelto. Si tienes cualquier otra incidencia, aquí estaré. 😊",
+                BurbujaChat(self.chat_frame, "¡Perfecto! Me alegra que se haya resuelto. Si tienes cualquier otra incidencia, aquí estaré.",
                             es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts)
                 self._scroll_abajo()
                 self.btn_enviar.configure(state="normal", text="Enviar  ➤")
