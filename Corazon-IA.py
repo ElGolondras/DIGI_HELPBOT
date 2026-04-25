@@ -704,23 +704,19 @@ class DigiHelpApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=72)
         logo_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 0))
         logo_frame.grid_propagate(False)
-        self._icono_frame = ctk.CTkFrame(logo_frame, width=38, height=38, corner_radius=19, fg_color=C["accent"])
-        self._icono_frame.pack(side="left", padx=(0, 10))
-        self._icono_frame.pack_propagate(False)
         try:
             img = Image.open(recurso_path("avatar.png")).convert("RGBA")
             s = min(img.size)
             img = img.crop(((img.width-s)//2, (img.height-s)//2, (img.width+s)//2, (img.height+s)//2))
-            img = img.resize((38, 38), Image.LANCZOS)
-            mask = Image.new("L", (38, 38), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, 38, 38), fill=255)
-            out = Image.new("RGBA", (38, 38), (0,0,0,0))
-            out.paste(img, (0, 0), mask)
-            ctk_logo = ctk.CTkImage(light_image=out, dark_image=out, size=(38, 38))
-            ctk.CTkLabel(self._icono_frame, image=ctk_logo, text="").pack(expand=True)
+            img = img.resize((46, 46), Image.LANCZOS)
+            ctk_logo = ctk.CTkImage(light_image=img, dark_image=img, size=(46, 46))
+            self._icono_frame = ctk.CTkLabel(logo_frame, image=ctk_logo, text="", fg_color="transparent")
+            self._icono_frame.pack(side="left", padx=(0, 10))
             self._icono_frame._img_ref = ctk_logo
         except Exception:
-            ctk.CTkLabel(self._icono_frame, text="D", font=("Georgia", 18, "bold"), text_color="white").pack(expand=True)
+            self._icono_frame = ctk.CTkLabel(logo_frame, text="D", font=("Georgia", 20, "bold"),
+                                             text_color="white", fg_color="transparent")
+            self._icono_frame.pack(side="left", padx=(0, 10))
         ctk.CTkLabel(logo_frame, text="DigiHelp AI", font=("Helvetica", 17, "bold"), text_color="white").pack(side="left", anchor="w")
 
         self.btn_nuevo = ctk.CTkButton(self.sidebar, text="＋  Nuevo chat", font=("Helvetica", 13, "bold"),
@@ -873,13 +869,13 @@ class DigiHelpApp(ctk.CTk):
         self._entrada_bg.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         # Preview de imagen adjunta (oculto por defecto)
-        self._preview_frame = ctk.CTkFrame(self._entrada_bg, fg_color="#EFF6FF",
-                                           corner_radius=8, border_width=1, border_color=C["accent"])
-        self._lbl_preview = ctk.CTkLabel(self._preview_frame, text="",
-                                         font=("Helvetica", 12), text_color=C["accent"])
+        self._preview_frame = ctk.CTkFrame(self._entrada_bg, fg_color=C["bg_app"],
+                                           corner_radius=8, border_width=2, border_color=C["accent"])
+        self._lbl_preview = ctk.CTkLabel(self._preview_frame, text="", text_color=C["accent"],
+                                         font=("Helvetica", 12))
         self._lbl_preview.pack(side="left", padx=10, pady=6)
         ctk.CTkButton(self._preview_frame, text="✕", width=24, height=24,
-                      fg_color="transparent", hover_color="#DBEAFE",
+                      fg_color="transparent", hover_color=C["border"],
                       text_color=C["accent"], font=("Helvetica", 12),
                       command=self._quitar_imagen).pack(side="right", padx=6)
 
@@ -958,7 +954,7 @@ class DigiHelpApp(ctk.CTk):
         popup.geometry(f"{pw}x{ph}+{bx}+{by - ph - 6}")
 
         self._panel_adjuntar = popup
-        self.btn_adjuntar.configure(fg_color="#DBEAFE", border_color=C["accent"])
+        self.btn_adjuntar.configure(fg_color="transparent", border_color=C["accent"], text_color=C["accent"])
 
         # Cerrar al hacer click en cualquier sitio de la app principal
         self.bind("<Button-1>", self._click_fuera_panel, add="+")
@@ -1002,7 +998,7 @@ class DigiHelpApp(ctk.CTk):
             self._lbl_preview.configure(text=f"📄  {nombre}")
             self._preview_frame.pack(fill="x", padx=20, pady=(8, 0),
                                      before=self._entrada_bg.winfo_children()[1])
-            self.btn_adjuntar.configure(fg_color="#DBEAFE", border_color=C["accent"])
+            self.btn_adjuntar.configure(fg_color="transparent", border_color=C["accent"], text_color=C["accent"])
         except Exception as e:
             self._lbl_preview.configure(text=f"⚠️ Error: {e}")
             self._preview_frame.pack(fill="x", padx=20, pady=(8, 0),
@@ -1057,7 +1053,7 @@ class DigiHelpApp(ctk.CTk):
         nombre = os.path.basename(ruta)
         self._lbl_preview.configure(text=f"📎  {nombre}")
         self._preview_frame.pack(fill="x", padx=20, pady=(8, 0), before=self._entrada_bg.winfo_children()[1])
-        self.btn_adjuntar.configure(fg_color="#DBEAFE", border_color=C["accent"])
+        self.btn_adjuntar.configure(fg_color="transparent", border_color=C["accent"], text_color=C["accent"])
 
     def _quitar_imagen(self):
         self._imagen_adjunta = None
@@ -1117,7 +1113,10 @@ class DigiHelpApp(ctk.CTk):
                 self._esperando_confirmacion = False
 
                 if self._intentos >= 5:
-                    # Máximo de intentos alcanzado — mostrar diálogo y NO continuar
+                    # Mostrar primero la burbuja del usuario
+                    BurbujaChat(self.chat_frame, msg, es_ia=False, timestamp=ts, animar=True)
+                    self._scroll_abajo()
+                    # Luego el mensaje del bot
                     BurbujaChat(self.chat_frame,
                                 "He agotado mis intentos para resolver esta incidencia. Voy a crear un ticket para que el equipo de IT te ayude directamente.",
                                 es_ia=True, avatar_ia=self.avatar_ia, timestamp=ts)
@@ -1157,10 +1156,20 @@ class DigiHelpApp(ctk.CTk):
         ).start()
 
     def _fijar_titulo(self, texto_usuario):
+        # Mantenido por compatibilidad — ahora usa _actualizar_titulo_async
         titulo = self._generar_titulo(texto_usuario)
-        self._chat_titulo  = titulo
+        self._chat_titulo = titulo
         if not self._chat_archivo:
             self._chat_archivo = self.chat_id
+
+    def _actualizar_titulo_async(self):
+        """Regenera el título basado en el historial actual y actualiza la sidebar."""
+        if not self._chat_archivo:
+            self._chat_archivo = self.chat_id
+        nuevo_titulo = self._generar_titulo()
+        self._chat_titulo = nuevo_titulo
+        self._guardar_chat()
+        self.after(0, self.cargar_sidebar)
 
     def _responder_ia(self, texto_usuario, es_primero, ts, imagen=None, doc=None):
         # Fijar archivo desde el principio para todos los mensajes del chat
@@ -1212,7 +1221,8 @@ class DigiHelpApp(ctk.CTk):
             self.after(0, self._scroll_abajo)
             self.after(300, lambda r=ruta_v: self.reproducir_video(r))
             if es_primero:
-                self._fijar_titulo(texto_usuario)
+                self._problema_inicial = texto_usuario
+            threading.Thread(target=self._actualizar_titulo_async, daemon=True).start()
             self._guardar_chat()
             self.after(0, self.cargar_sidebar)
             self.after(0, lambda: self.btn_enviar.configure(state="normal", text="Enviar  ➤"))
@@ -1261,8 +1271,11 @@ class DigiHelpApp(ctk.CTk):
             self.historial.append({"role": "assistant", "content": respuesta})
 
             if es_primero:
-                self._fijar_titulo(texto_usuario)
                 self._problema_inicial = texto_usuario
+            # Actualizar título dinámicamente cada 2 intercambios (par de user+assistant)
+            n_intercambios = sum(1 for m in self.historial if m["role"] == "assistant")
+            if es_primero or n_intercambios % 2 == 0:
+                threading.Thread(target=self._actualizar_titulo_async, daemon=True).start()
             self._guardar_chat()
             self.after(0, self.cargar_sidebar)
 
@@ -1285,7 +1298,8 @@ class DigiHelpApp(ctk.CTk):
         nombre    = self.usuario_data.get("nombre_completo", "Usuario desconocido")
         depto     = self.usuario_data.get("departamento", "")
         email     = self.usuario_data.get("email", "")
-        problema  = self._problema_inicial or "Sin descripción"
+        # Usar resumen de toda la conversación en lugar del primer mensaje
+        problema  = self._generar_resumen_conversacion()
         urgencia  = detectar_urgencia(problema)
 
         exito = crear_incidencia_db(nombre, depto, email, problema, urgencia)
@@ -1340,14 +1354,50 @@ class DigiHelpApp(ctk.CTk):
         mensajes_json = json.dumps(mensajes_limpios, ensure_ascii=False)
         guardar_chat_db(self._usuario_id, self._chat_archivo, self._chat_titulo, fecha, mensajes_json)
 
-    def _generar_titulo(self, msg):
+    def _generar_titulo(self, msg=None):
+        """Genera un título dinámico basado en el historial actual de la conversación."""
         try:
-            r = client.chat.completions.create(model=MODELO_TEXTO, max_tokens=20,
-                messages=[{"role": "user", "content": f"Resume en 4 palabras máximo (solo el título, sin comillas ni puntos): {msg}"}])
+            # Construir resumen del historial (solo texto, sin imágenes)
+            fragmentos = []
+            for m in self.historial[-10:]:  # últimos 10 mensajes
+                rol = "Usuario" if m["role"] == "user" else "Bot"
+                contenido = m["content"]
+                if isinstance(contenido, list):
+                    contenido = next((p["text"] for p in contenido if p.get("type") == "text"), "")
+                if contenido:
+                    fragmentos.append(f"{rol}: {contenido[:120]}")
+            contexto = "\n".join(fragmentos) if fragmentos else (msg or "Conversación IT")
+            r = client.chat.completions.create(model=MODELO_TEXTO, max_tokens=15,
+                messages=[{"role": "user", "content": (
+                    f"Con base en esta conversación, escribe un título muy corto (máximo 5 palabras, "
+                    f"sin comillas, sin puntos, en español) que resuma el tema principal:\n{contexto}"
+                )}])
             titulo = r.choices[0].message.content.strip().strip('"').strip("'").strip(".")
             return titulo if titulo else "Incidencia IT"
         except Exception:
-            return "Incidencia IT"
+            return msg[:30] if msg else "Incidencia IT"
+
+    def _generar_resumen_conversacion(self):
+        """Genera un resumen completo de la conversación para el ticket de incidencia."""
+        try:
+            fragmentos = []
+            for m in self.historial:
+                rol = "Usuario" if m["role"] == "user" else "Bot"
+                contenido = m["content"]
+                if isinstance(contenido, list):
+                    contenido = next((p["text"] for p in contenido if p.get("type") == "text"), "")
+                if contenido:
+                    fragmentos.append(f"{rol}: {contenido[:200]}")
+            contexto = "\n".join(fragmentos)
+            r = client.chat.completions.create(model=MODELO_TEXTO, max_tokens=120,
+                messages=[{"role": "user", "content": (
+                    f"Resume en 2-3 frases el problema técnico de esta conversación de soporte IT "
+                    f"(solo el problema, sin mencionar que es un resumen, en español):\n{contexto}"
+                )}])
+            resumen = r.choices[0].message.content.strip()
+            return resumen if resumen else self._problema_inicial or "Sin descripción"
+        except Exception:
+            return self._problema_inicial or "Sin descripción"
 
     def _buscar_video(self, texto):
         """
@@ -1736,22 +1786,40 @@ class DigiHelpApp(ctk.CTk):
             # Aplicar colores a widgets existentes sin destruir el chat
             self.configure(fg_color=C["bg_app"])
             self.sidebar.configure(fg_color=C["sidebar_bg"])
-            self._icono_frame.configure(fg_color=C["accent"])
+            # _icono_frame es CTkLabel transparente, no necesita recolorear
+            self._preview_frame.configure(fg_color=C["bg_app"], border_color=C["accent"])
+            self._lbl_preview.configure(text_color=C["accent"])
             self.btn_nuevo.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
             self.lista_frame.configure(scrollbar_button_color=C["sidebar_hover"])
             self._header.configure(fg_color=C["header_bg"], border_color=C["border"])
-            self.btn_toggle.configure(hover_color=C["bg_app"], text_color=C["text_dark"])
-            self.btn_prefs.configure(hover_color=C["bg_app"], text_color=C["text_dark"])
-            self.chat_frame.configure(fg_color=C["bg_app"])
+            self.btn_toggle.configure(fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"])
+            self.btn_prefs.configure(fg_color="transparent", hover_color=C["bg_app"], text_color=C["text_dark"])
+            self.chat_frame.configure(fg_color=C["bg_app"], scrollbar_button_color=C["border"])
             self.main.configure(fg_color=C["bg_app"])
             self._entrada_bg.configure(fg_color=C["header_bg"], border_color=C["border"])
             self.btn_enviar.configure(fg_color=C["accent"], hover_color=C["accent_dark"])
-            self.btn_adjuntar.configure(hover_color=C["border"])
-            self.entry.configure(border_color=C["border"], font=("Helvetica", FUENTE))
+            self.btn_adjuntar.configure(fg_color=C["bg_app"], hover_color=C["border"], border_color=C["border"], text_color=C["text_dark"])
+            self.entry.configure(fg_color=C["input_bg"], border_color=C["border"], text_color=C["text_dark"], font=("Helvetica", FUENTE))
             # Recolorear burbujas existentes en el chat actual
             for widget in self.chat_frame.winfo_children():
                 if isinstance(widget, BurbujaChat):
                     widget.recolorear()
+            # Actualizar pantalla de bienvenida si está visible
+            if self.welcome and self.welcome.winfo_exists():
+                self.welcome.configure(fg_color=C["card"], border_color=C["border"])
+                for w in self.welcome.winfo_children():
+                    try:
+                        if isinstance(w, ctk.CTkLabel):
+                            txt = str(w.cget("text"))
+                            w.configure(text_color=C["text_dark"] if "Bienvenido" in txt else C["text_muted"])
+                        elif isinstance(w, ctk.CTkFrame):
+                            w.configure(fg_color="transparent")
+                            for btn in w.winfo_children():
+                                if isinstance(btn, ctk.CTkButton):
+                                    btn.configure(fg_color=C["bg_app"], hover_color=C["border"],
+                                                  text_color=C["accent"], border_color=C["accent"])
+                    except Exception:
+                        pass
             # Recargar sidebar para que los botones de chats cojan el nuevo color
             self.cargar_sidebar()
 
